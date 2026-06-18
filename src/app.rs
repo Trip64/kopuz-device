@@ -50,6 +50,7 @@ pub enum Command {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
     Menu,
+    NowPlaying,
     Songs,
     Albums,
     AlbumTracks,
@@ -66,9 +67,12 @@ pub enum Repeat {
 }
 
 /// Top-level menu entries, in display order.
-pub const MENU: [&str; 4] = ["Songs", "Albums", "Artists", "Settings"];
-/// Settings rows, in display order.
-pub const SETTINGS: [&str; 3] = ["Shuffle", "Repeat", "Volume"];
+pub const MENU: [&str; 5] = ["Now Playing", "Songs", "Albums", "Artists", "Settings"];
+/// Settings rows, in display order. The ILI9341 build adds Brightness.
+#[cfg(not(feature = "ili9341"))]
+pub const SETTINGS: &[&str] = &["Shuffle", "Repeat", "Volume"];
+#[cfg(feature = "ili9341")]
+pub const SETTINGS: &[&str] = &["Shuffle", "Repeat", "Volume", "Brightness"];
 
 pub struct App {
     pub queue: Vec<Track>,
@@ -93,6 +97,11 @@ pub struct App {
 
     pub shuffle: bool,
     pub repeat: Repeat,
+    /// Backlight brightness 0..100 (ILI9341 only; ignored on e-paper).
+    pub brightness: u8,
+
+    /// Battery voltage in mV (after divider), or -1 if unknown / no battery.
+    pub battery_mv: i32,
 
     pub dirty: bool,
 }
@@ -121,12 +130,25 @@ impl App {
             settings_sel: 0,
             shuffle: false,
             repeat: Repeat::Off,
+            brightness: 100,
+            battery_mv: -1,
             dirty: true,
         }
     }
 
     pub fn current(&self) -> Option<&Track> {
         self.queue.get(self.index)
+    }
+
+    /// Battery charge as 0..100%, or `None` if no battery (on USB) / unknown.
+    /// LiPo curve, clamped. Below ~3.0 V we assume no pack is connected.
+    pub fn battery_pct(&self) -> Option<u8> {
+        let mv = self.battery_mv;
+        if mv < 3000 {
+            return None;
+        }
+        let pct = ((mv - 3300) * 100) / (4200 - 3300);
+        Some(pct.clamp(0, 100) as u8)
     }
 
     /// The tracks shown by the current `*Tracks` screen (empty otherwise).
@@ -144,6 +166,7 @@ impl App {
     pub fn list_len(&self) -> usize {
         match self.screen {
             Screen::Menu => MENU.len(),
+            Screen::NowPlaying => 0,
             Screen::Songs => self.queue.len(),
             Screen::Albums => self.albums.len(),
             Screen::Artists => self.artists.len(),
@@ -156,6 +179,7 @@ impl App {
     pub fn sel(&self) -> usize {
         match self.screen {
             Screen::Menu => self.menu_sel,
+            Screen::NowPlaying => 0,
             Screen::Songs => self.songs_sel,
             Screen::Albums => self.albums_sel,
             Screen::Artists => self.artists_sel,
@@ -171,7 +195,8 @@ impl App {
             Screen::Albums => &mut self.albums_sel,
             Screen::Artists => &mut self.artists_sel,
             Screen::AlbumTracks | Screen::ArtistTracks => &mut self.group_sel,
-            Screen::Settings => &mut self.settings_sel,
+            // NowPlaying has no list; Prev/Next skip tracks instead.
+            Screen::NowPlaying | Screen::Settings => &mut self.settings_sel,
         }
     }
 
@@ -189,13 +214,22 @@ impl App {
                 crate::ffi::audio_out::set_volume(self.volume);
                 Command::None
             }
+            // On Now Playing, Prev/Next skip tracks; elsewhere they scroll.
             Button::Next => {
-                self.move_sel(1);
-                Command::None
+                if self.screen == Screen::NowPlaying {
+                    self.skip(1)
+                } else {
+                    self.move_sel(1);
+                    Command::None
+                }
             }
             Button::Prev => {
-                self.move_sel(-1);
-                Command::None
+                if self.screen == Screen::NowPlaying {
+                    self.skip(-1)
+                } else {
+                    self.move_sel(-1);
+                    Command::None
+                }
             }
             Button::Back => {
                 self.go_back();
@@ -227,13 +261,15 @@ impl App {
         match self.screen {
             Screen::Menu => {
                 self.screen = match self.menu_sel {
-                    0 => Screen::Songs,
-                    1 => Screen::Albums,
-                    2 => Screen::Artists,
+                    0 => Screen::NowPlaying,
+                    1 => Screen::Songs,
+                    2 => Screen::Albums,
+                    3 => Screen::Artists,
                     _ => Screen::Settings,
                 };
                 Command::None
             }
+            Screen::NowPlaying => self.toggle_play(),
             Screen::Songs => {
                 let order: Vec<usize> = (0..self.queue.len()).collect();
                 self.play_list(order, self.songs_sel)
@@ -262,20 +298,69 @@ impl App {
     }
 
     fn toggle_setting(&mut self) {
-        match self.settings_sel {
-            0 => self.shuffle = !self.shuffle,
-            1 => {
+        match SETTINGS.get(self.settings_sel).copied().unwrap_or("") {
+            "Shuffle" => self.shuffle = !self.shuffle,
+            "Repeat" => {
                 self.repeat = match self.repeat {
                     Repeat::Off => Repeat::All,
                     Repeat::All => Repeat::One,
                     Repeat::One => Repeat::Off,
                 }
             }
-            _ => {
+            "Volume" => {
                 self.volume = if self.volume >= 100 { 0 } else { (self.volume + 10).min(100) };
                 crate::ffi::audio_out::set_volume(self.volume);
             }
+            "Brightness" => {
+                self.brightness = if self.brightness >= 100 {
+                    20
+                } else {
+                    (self.brightness + 20).min(100)
+                };
+                #[cfg(feature = "ili9341")]
+                crate::ffi::ili9341::set_brightness(self.brightness);
+            }
+            _ => {}
         }
+    }
+
+    /// Play/pause the current track (Now Playing select).
+    fn toggle_play(&mut self) -> Command {
+        if self.current().is_none() {
+            return Command::None;
+        }
+        match self.state {
+            PlaybackState::Playing => {
+                self.state = PlaybackState::Paused;
+                Command::Pause
+            }
+            PlaybackState::Paused => {
+                self.state = PlaybackState::Playing;
+                Command::Play
+            }
+            PlaybackState::Stopped => {
+                if self.play_order.is_empty() {
+                    return Command::None;
+                }
+                self.state = PlaybackState::Playing;
+                self.position = Duration::ZERO;
+                Command::LoadCurrent
+            }
+        }
+    }
+
+    /// Skip to the previous/next track in the play order (Now Playing).
+    fn skip(&mut self, delta: isize) -> Command {
+        if self.play_order.is_empty() {
+            return Command::None;
+        }
+        let n = self.play_order.len() as isize;
+        self.play_pos = (self.play_pos as isize + delta).rem_euclid(n) as usize;
+        self.index = self.play_order[self.play_pos];
+        self.position = Duration::ZERO;
+        self.state = PlaybackState::Playing;
+        self.dirty = true;
+        Command::LoadCurrent
     }
 
     /// Start (or toggle) playback of `order[pos]`. Honors shuffle.

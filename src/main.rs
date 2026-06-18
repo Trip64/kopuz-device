@@ -31,6 +31,7 @@ fn main() -> anyhow::Result<()> {
     log::info!("kopuz-device booting");
 
     ffi::buttons::init();
+    ffi::battery::init();
     let audio_sink = audio::Audio::new();
     let mut display = display::Display::new();
     log::info!("init done");
@@ -56,6 +57,7 @@ fn main() -> anyhow::Result<()> {
     sd::mount()?;
     let queue = library::scan(library::MOUNT_POINT).unwrap_or_default();
     let app = Arc::new(Mutex::new(App::new(queue)));
+    app.lock().unwrap().battery_mv = ffi::battery::read_mv().unwrap_or(-1);
 
     let (tx, rx) = mpsc::channel::<Command>();
 
@@ -83,6 +85,16 @@ fn main() -> anyhow::Result<()> {
             if a.state == PlaybackState::Playing {
                 a.dirty = true;
             }
+        }
+
+        // Sample the battery every ~5s; repaint if the reading moved enough.
+        if tick % 100 == 0 {
+            let mv = ffi::battery::read_mv().unwrap_or(-1);
+            let mut a = app.lock().unwrap();
+            if (a.battery_mv - mv).abs() > 50 {
+                a.dirty = true;
+            }
+            a.battery_mv = mv;
         }
 
         {

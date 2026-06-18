@@ -192,6 +192,14 @@ Use the dedicated speaker port for power; feed the audio signal from one PWM pin
 | GND         | GND       | |
 | IN (signal) | **GPIO15** (A4) | PWM today, swap to I2S DAC later |
 
+### Battery (LiPo) — `components/battery/battery.c`
+
+The board has a LiPo connector + charger; battery voltage is sensed on **GPIO9**
+(`BAT_VOLT_PIN`, ADC1_CH8) through an on-board 2:1 divider. Plug a single-cell
+LiPo into the board's battery JST — no extra wiring. The header shows an icon +
+percentage; with no pack (USB only) it reads `USB`. If your board's divider
+ratio differs, adjust `BAT_DIVIDER` in `components/battery/battery.c`.
+
 ### Buttons (×5, to GND) — `components/buttons/buttons.c`
 
 See the **Controls** section above for the button → GPIO map and what each does.
@@ -210,6 +218,14 @@ Uses the board's dedicated SD header (separate SPI3 bus). Pins are defined in
 
 > This board has **8 MB octal PSRAM** — `sdkconfig.defaults` sets
 > `CONFIG_SPIRAM_MODE_OCT=y`. Quad mode would hang at boot on this octal chip.
+
+## Bluetooth audio — not supported (hardware)
+
+The ESP32-**S3** has **BLE only — no Bluetooth Classic / no A2DP**, so it
+*cannot* stream audio to Bluetooth headphones or speakers. A2DP needs Classic
+BT, which only the original ESP32 has. For wireless out you'd add an external
+BT-audio transmitter fed over I2S. Audio here is the PWM speaker (or a future
+I2S DAC).
 
 ## Notes / next steps
 

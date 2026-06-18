@@ -58,6 +58,26 @@ pub mod ili9341 {
     pub fn display_frame(buf: &[u8; ILI_FRAME_BYTES]) {
         unsafe { sys::ili9341_display_frame(buf.as_ptr()) };
     }
+    pub fn set_brightness(pct: u8) {
+        unsafe { sys::ili9341_set_brightness(pct) };
+    }
+}
+
+pub mod battery {
+    use super::*;
+
+    pub fn init() {
+        unsafe { sys::battery_init() };
+    }
+    /// Battery voltage in mV (after the divider), or `None` on read error.
+    pub fn read_mv() -> Option<i32> {
+        let mv = unsafe { sys::battery_read_mv() };
+        if mv < 0 {
+            None
+        } else {
+            Some(mv)
+        }
+    }
 }
 
 pub mod buttons {

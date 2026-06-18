@@ -2,9 +2,18 @@
 #include "ili9341_pins.h"
 
 #include "esp_log.h"
+#include "driver/ledc.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <string.h>
+
+// Backlight is PWM'd for brightness control. Uses LEDC timer 1 / channel 1 —
+// the audio sink owns timer 0 / channel 0 (GPIO15), so no clash.
+#define BL_LEDC_TIMER   LEDC_TIMER_1
+#define BL_LEDC_CHANNEL LEDC_CHANNEL_1
+#define BL_LEDC_MODE    LEDC_LOW_SPEED_MODE
+#define BL_LEDC_RES     LEDC_TIMER_8_BIT
+#define BL_LEDC_FREQ    5000
 
 static const char *TAG = "ili9341";
 static spi_device_handle_t s_spi;
@@ -91,10 +100,27 @@ int ili9341_init(void) {
     } else {
         gpio_config_t out = {
             .mode = GPIO_MODE_OUTPUT,
-            .pin_bit_mask = (1ULL << ILI_PIN_DC) | (1ULL << ILI_PIN_RST) |
-                            (1ULL << ILI_PIN_BL),
+            .pin_bit_mask = (1ULL << ILI_PIN_DC) | (1ULL << ILI_PIN_RST),
         };
         ESP_ERROR_CHECK(gpio_config(&out));
+
+        ledc_timer_config_t bt = {
+            .speed_mode = BL_LEDC_MODE,
+            .timer_num = BL_LEDC_TIMER,
+            .duty_resolution = BL_LEDC_RES,
+            .freq_hz = BL_LEDC_FREQ,
+            .clk_cfg = LEDC_AUTO_CLK,
+        };
+        ledc_timer_config(&bt);
+        ledc_channel_config_t bc = {
+            .speed_mode = BL_LEDC_MODE,
+            .channel = BL_LEDC_CHANNEL,
+            .timer_sel = BL_LEDC_TIMER,
+            .gpio_num = ILI_PIN_BL,
+            .duty = 255,
+            .hpoint = 0,
+        };
+        ledc_channel_config(&bc);
 
         spi_bus_config_t bus = {
             .mosi_io_num = ILI_PIN_MOSI,
@@ -128,10 +154,17 @@ int ili9341_init(void) {
     send_command(0x29); // display on
     vTaskDelay(pdMS_TO_TICKS(20));
 
-    gpio_set_level(ILI_PIN_BL, 1); // backlight on
+    ili9341_set_brightness(100); // backlight full on
 
     ESP_LOGI(TAG, "panel up (%dx%d)", ILI_WIDTH, ILI_HEIGHT);
     return 0;
+}
+
+void ili9341_set_brightness(uint8_t pct) {
+    if (pct > 100) pct = 100;
+    uint32_t duty = ((uint32_t)pct * 255) / 100;
+    ledc_set_duty(BL_LEDC_MODE, BL_LEDC_CHANNEL, duty);
+    ledc_update_duty(BL_LEDC_MODE, BL_LEDC_CHANNEL);
 }
 
 static void fill_color(uint16_t color) {

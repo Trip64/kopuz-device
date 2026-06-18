@@ -18,6 +18,9 @@ int ili9341_init(void);
 /// Fill the whole panel with the background colour.
 void ili9341_clear(void);
 
+/// Set backlight brightness, 0..100 % (PWM on the BL pin).
+void ili9341_set_brightness(uint8_t pct);
+
 /// Push a 1bpp landscape framebuffer (ILI_ROW_BYTES per row, MSB first,
 /// bit 1 = background/white) to the panel, expanding each bit to RGB565.
 void ili9341_display_frame(const uint8_t *mono);
