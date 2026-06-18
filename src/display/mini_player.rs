@@ -23,8 +23,11 @@ const WHITE: BinaryColor = BinaryColor::Off;
 const HEADER_Y: i32 = 14;
 const BODY_TOP: i32 = 16;
 const ROW_H: i32 = 12;
-const VISIBLE: usize = 7;
-const FOOTER_Y: i32 = 99;
+/// Footer divider sits a fixed band above the bottom; the rest is the list.
+/// Derived from LCD_H so the layout works on both the 122px e-paper and the
+/// 240px ILI9341.
+const FOOTER_Y: i32 = LCD_H as i32 - 23;
+const VISIBLE: usize = ((FOOTER_Y - BODY_TOP) / ROW_H) as usize;
 
 pub fn render(fb: &mut FrameBuffer, app: &App) {
     fb.clear_white();

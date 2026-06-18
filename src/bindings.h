@@ -1,4 +1,5 @@
 #include "epd.h"
+#include "ili9341.h"
 #include "buttons.h"
 #include "audio_out.h"
 #include "storage.h"

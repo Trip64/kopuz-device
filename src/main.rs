@@ -63,7 +63,7 @@ fn main() -> anyhow::Result<()> {
         let app = Arc::clone(&app);
         std::thread::Builder::new()
             .name("audio".into())
-            .stack_size(32 * 1024)
+            .stack_size(64 * 1024) // symphonia MP3 decode overflows a smaller stack -> reboot
             .spawn(move || audio_loop(app, audio_sink, rx))?;
     }
 

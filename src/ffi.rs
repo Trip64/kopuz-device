@@ -11,6 +11,10 @@ pub const EPD_WIDTH: usize = sys::EPD_WIDTH as usize;
 pub const EPD_HEIGHT: usize = sys::EPD_HEIGHT as usize;
 pub const EPD_FRAME_BYTES: usize = sys::EPD_FRAME_BYTES as usize;
 
+pub const ILI_WIDTH: usize = sys::ILI_WIDTH as usize;
+pub const ILI_HEIGHT: usize = sys::ILI_HEIGHT as usize;
+pub const ILI_FRAME_BYTES: usize = sys::ILI_FRAME_BYTES as usize;
+
 /// Buttons mirror of the C `btn_event_t` enum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Button {
@@ -39,6 +43,20 @@ pub mod epd {
     }
     pub fn sleep() {
         unsafe { sys::epd_sleep() };
+    }
+}
+
+pub mod ili9341 {
+    use super::*;
+
+    pub fn init() {
+        unsafe { sys::ili9341_init() };
+    }
+    pub fn clear() {
+        unsafe { sys::ili9341_clear() };
+    }
+    pub fn display_frame(buf: &[u8; ILI_FRAME_BYTES]) {
+        unsafe { sys::ili9341_display_frame(buf.as_ptr()) };
     }
 }
 

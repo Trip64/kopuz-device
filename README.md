@@ -60,6 +60,18 @@ espflash flash --port /dev/cu.usbmodem2101 --no-skip \
 
 First build downloads + compiles ESP-IDF (`v5.3.1`, pinned in `.cargo/config.toml`) — slow once, cached after.
 
+### Display backend
+
+Default is the Waveshare 2.13" e-paper. To build for the ILI9341 320×240 TFT
+instead, enable the `ili9341` cargo feature:
+
+```sh
+cargo run --release --features ili9341
+```
+
+The feature only flips which panel the firmware drives (Rust `cfg`); both C
+drivers are always compiled. Wire the matching display — see *Wiring* below.
+
 ### ⚠️ Changed a C file? You MUST force a rebuild
 
 This is the #1 footgun. **`cargo build` does NOT recompile the C components by
@@ -148,6 +160,27 @@ control pins:
 | BUSY    | **GPIO8**       | D14        | busy (input) |
 
 (The HAT's MISO is not used by e-paper.)
+
+### ILI9341 320×240 SPI TFT (no touch) — `components/ili9341/ili9341_pins.h`
+
+Alternative display to the e-paper. Build with `--features ili9341` (see
+*Display backend* above). Shares the same SPI2 pins as the e-paper header, so
+you wire **either** the e-paper **or** the TFT — not both. SDO/MISO and the
+touch pins are unused.
+
+| TFT pin | Connect to GPIO | Silkscreen | Notes |
+|---------|-----------------|------------|-------|
+| VCC     | 3V3             | 3V3        | 3.3 V (most ILI9341 boards have a regulator; 5 V also ok then) |
+| GND     | GND             | GND        | |
+| SDI/MOSI | **GPIO39**     | D7 / MOSI  | SPI data |
+| SCK     | **GPIO41**      | D5 / SCK   | SPI clock |
+| CS      | **GPIO42**      | D4 / SS    | chip select |
+| DC/RS   | **GPIO2**       | D1         | data/command |
+| RST     | **GPIO1**       | D0         | reset |
+| LED/BL  | **GPIO8**       | D14        | backlight (driven high = on) |
+
+SPI runs at 40 MHz. The 1bpp UI is rendered full-screen and expanded to RGB565
+(white background / black text) — monochrome look on the colour panel for now.
 
 ### Deneyap Hoparlör (active speaker, PAM8302A) — `components/audio_out/audio_out.c`
 

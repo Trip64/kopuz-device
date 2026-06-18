@@ -25,6 +25,8 @@ static uint8_t s_channels;
 
 #define PWM_SILENCE    128
 
+#define VOLUME_BOOST_X 4   // gain at vol=100 (hard-clipped); bump if still quiet
+
 #define RING_SIZE  8192u
 #define RING_MASK  (RING_SIZE - 1u)
 static volatile uint8_t s_ring[RING_SIZE];
@@ -141,7 +143,12 @@ size_t audio_out_write(const int16_t *samples, size_t frames) {
         if (s_channels > 1) {
             s = (s + samples[i * s_channels + 1]) / 2;
         }
-        s = (s * s_volume) / 100;
+        // Volume is a gain, not just attenuation: music RMS sits far below
+        // full-scale, so vol=100 boosts by VOLUME_BOOST_X and hard-clips. This
+        // is what makes PWM playback actually loud. vol = 100/BOOST -> unity.
+        s = (s * (int32_t)s_volume * VOLUME_BOOST_X) / 100;
+        if (s > 32767) s = 32767;
+        else if (s < -32768) s = -32768;
         uint8_t pwm = (uint8_t)((s + 32768) >> 8);
 
         uint32_t next = (s_head + 1) & RING_MASK;
