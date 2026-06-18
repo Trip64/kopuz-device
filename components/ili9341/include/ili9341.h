@@ -21,6 +21,11 @@ void ili9341_clear(void);
 /// Set backlight brightness, 0..100 % (PWM on the BL pin).
 void ili9341_set_brightness(uint8_t pct);
 
+/// Blit an RGB565 (big-endian, 2 bytes/px) rectangle straight to the panel.
+/// Used to draw colour album art over the 1bpp UI.
+void ili9341_blit_rgb565(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
+                         const uint8_t *data);
+
 /// Push a 1bpp landscape framebuffer (ILI_ROW_BYTES per row, MSB first,
 /// bit 1 = background/white) to the panel, expanding each bit to RGB565.
 void ili9341_display_frame(const uint8_t *mono);

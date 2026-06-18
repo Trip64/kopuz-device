@@ -29,6 +29,11 @@ const ROW_H: i32 = 12;
 const FOOTER_Y: i32 = LCD_H as i32 - 23; // rule above the mini-player
 const VISIBLE: usize = ((FOOTER_Y - BODY_TOP) / ROW_H) as usize;
 
+/// Now-Playing album-art box origin (landscape coords). Exported so main can
+/// overlay the colour cover on the ILI9341 at the same spot.
+pub const ART_X: i32 = 4;
+pub const ART_Y: i32 = BODY_TOP + 2;
+
 fn small() -> MonoTextStyle<'static, BinaryColor> {
     MonoTextStyle::new(&FONT_6X10, BLACK)
 }
@@ -211,23 +216,37 @@ fn render_now_playing(fb: &mut FrameBuffer, app: &App) {
     }
     let t = now.unwrap();
 
-    // Album-art placeholder with the transport state glyph inside.
-    let art = if LCD_W > 300 { 80 } else { 46 };
-    let ax = 4;
-    let ay = BODY_TOP + 2;
-    Rectangle::new(Point::new(ax, ay), Size::new(art as u32, art as u32))
-        .into_styled(PrimitiveStyle::with_stroke(BLACK, 2))
+    // Album art: real decoded cover if we have one, else a placeholder box
+    // with the transport-state glyph. On the ILI9341 the cover is colour and is
+    // overlaid after the 1bpp frame is flushed (see main); here we just reserve
+    // the box. On e-paper we blit the 1bpp dither straight in.
+    let ax = ART_X;
+    let ay = ART_Y;
+    let art = if let Some(a) = &app.art {
+        #[cfg(not(feature = "ili9341"))]
+        fb.blit_1bpp(ax, ay, a.px, a.px, &a.data);
+        Rectangle::new(Point::new(ax, ay), Size::new(a.px as u32, a.px as u32))
+            .into_styled(PrimitiveStyle::with_stroke(BLACK, 1))
+            .draw(fb)
+            .ok();
+        a.px as i32
+    } else {
+        let art = if LCD_W > 300 { 80 } else { 46 };
+        Rectangle::new(Point::new(ax, ay), Size::new(art as u32, art as u32))
+            .into_styled(PrimitiveStyle::with_stroke(BLACK, 2))
+            .draw(fb)
+            .ok();
+        let g = glyph(app.state);
+        Text::with_text_style(
+            g,
+            Point::new(ax + art / 2 - (g.len() as i32 * 4) / 2, ay + art / 2 - 6),
+            bold(),
+            topstyle(),
+        )
         .draw(fb)
         .ok();
-    let g = glyph(app.state);
-    Text::with_text_style(
-        g,
-        Point::new(ax + art / 2 - (g.len() as i32 * 4) / 2, ay + art / 2 - 6),
-        bold(),
-        topstyle(),
-    )
-    .draw(fb)
-    .ok();
+        art
+    };
 
     // Metadata column.
     let tx = ax + art + 8;
@@ -253,6 +272,27 @@ fn render_now_playing(fb: &mut FrameBuffer, app: &App) {
 
     // Progress bar + times spanning the bottom.
     let by = LCD_H as i32 - 22;
+
+    // UP NEXT queue between the art/metadata block and the progress bar.
+    let q_top = (ay + art + 4).max(ay + 52);
+    let rows = ((by - 2 - (q_top + 10)) / 10).max(0) as usize;
+    if rows > 0 {
+        let up = app.upcoming(rows.min(6));
+        if !up.is_empty() {
+            Text::with_text_style("UP NEXT", Point::new(4, q_top), small(), topstyle())
+                .draw(fb)
+                .ok();
+            for (k, &m) in up.iter().enumerate() {
+                let title = app.queue.get(m).map(|t| t.title.as_str()).unwrap_or("?");
+                let mut row = heapless::String::<40>::new();
+                let _ = write!(row, "{}. {}", k + 1, trunc(title, 30));
+                Text::with_text_style(&row, Point::new(4, q_top + 10 + k as i32 * 10), small(), topstyle())
+                    .draw(fb)
+                    .ok();
+            }
+        }
+    }
+
     progress_bar(fb, 4, by, LCD_W as i32 - 8, frac(app.position, t.duration));
     let mut tline = heapless::String::<16>::new();
     let _ = write!(tline, "{}/{}", mmss(app.position), mmss(t.duration));

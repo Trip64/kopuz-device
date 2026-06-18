@@ -84,14 +84,29 @@ static const ili_init_cmd_t INIT_SEQ[] = {
 };
 #define INIT_SEQ_LEN (sizeof(INIT_SEQ) / sizeof(INIT_SEQ[0]))
 
-static void set_addr_window(void) {
-    uint8_t cax[4] = {0x00, 0x00, (ILI_WIDTH - 1) >> 8, (ILI_WIDTH - 1) & 0xFF};
-    uint8_t pax[4] = {0x00, 0x00, (ILI_HEIGHT - 1) >> 8, (ILI_HEIGHT - 1) & 0xFF};
+static void set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
+    uint8_t cax[4] = {x0 >> 8, x0 & 0xFF, x1 >> 8, x1 & 0xFF};
+    uint8_t pax[4] = {y0 >> 8, y0 & 0xFF, y1 >> 8, y1 & 0xFF};
     send_command(0x2A);
     send_data_buf(cax, 4);
     send_command(0x2B);
     send_data_buf(pax, 4);
     send_command(0x2C);
+}
+
+static void set_addr_window(void) {
+    set_window(0, 0, ILI_WIDTH - 1, ILI_HEIGHT - 1);
+}
+
+void ili9341_blit_rgb565(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
+                         const uint8_t *data) {
+    if (!s_inited || w == 0 || h == 0) return;
+    if (x + w > ILI_WIDTH || y + h > ILI_HEIGHT) return;
+    set_window(x, y, x + w - 1, y + h - 1);
+    // One row per transfer keeps each under max_transfer_sz.
+    for (uint16_t r = 0; r < h; r++) {
+        send_data_buf(&data[(size_t)r * w * 2], (size_t)w * 2);
+    }
 }
 
 int ili9341_init(void) {

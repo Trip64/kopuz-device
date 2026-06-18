@@ -13,6 +13,7 @@
 //!           the queue on end-of-stream.
 
 mod app;
+mod art;
 mod audio;
 mod display;
 mod ffi;
@@ -24,6 +25,14 @@ use audio::decoder;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+// How often to repaint while playing (loop tick = 50ms). The TFT is fast so
+// the clock/progress can update ~every second; e-paper refresh is slow, so it
+// stays at ~4s to avoid constant flicker.
+#[cfg(feature = "ili9341")]
+const REPAINT_TICKS: u32 = 20;
+#[cfg(not(feature = "ili9341"))]
+const REPAINT_TICKS: u32 = 80;
 
 fn main() -> anyhow::Result<()> {
     esp_idf_svc::sys::link_patches();
@@ -61,18 +70,38 @@ fn main() -> anyhow::Result<()> {
 
     let (tx, rx) = mpsc::channel::<Command>();
 
+    // Cover-art decode pipeline: audio thread sends raw image bytes (or None),
+    // the art thread decodes/dithers off the audio + UI paths.
+    let (art_tx, art_rx) = mpsc::channel::<Option<Vec<u8>>>();
     {
         let app = Arc::clone(&app);
         std::thread::Builder::new()
+            .name("art".into())
+            .stack_size(32 * 1024)
+            .spawn(move || {
+                while let Ok(bytes) = art_rx.recv() {
+                    let bmp = bytes.and_then(|b| art::decode(&b));
+                    let mut a = app.lock().unwrap();
+                    a.art = bmp;
+                    a.dirty = true;
+                }
+            })?;
+    }
+
+    {
+        let app = Arc::clone(&app);
+        let art_tx = art_tx.clone();
+        std::thread::Builder::new()
             .name("audio".into())
             .stack_size(64 * 1024) // symphonia MP3 decode overflows a smaller stack -> reboot
-            .spawn(move || audio_loop(app, audio_sink, rx))?;
+            .spawn(move || audio_loop(app, audio_sink, rx, art_tx))?;
     }
 
     log::info!("main loop, {} tracks", app.lock().unwrap().queue.len());
     let mut tick: u32 = 0;
     loop {
         while let Some(btn) = ffi::buttons::poll() {
+            log::info!("button {btn:?}");
             let cmd = app.lock().unwrap().on_button(btn);
             if cmd != Command::None {
                 let _ = tx.send(cmd);
@@ -80,7 +109,7 @@ fn main() -> anyhow::Result<()> {
         }
 
         tick = tick.wrapping_add(1);
-        if tick % 80 == 0 {
+        if tick % REPAINT_TICKS == 0 {
             let mut a = app.lock().unwrap();
             if a.state == PlaybackState::Playing {
                 a.dirty = true;
@@ -102,6 +131,19 @@ fn main() -> anyhow::Result<()> {
             if a.dirty {
                 display::mini_player::render(display.frame(), &a);
                 display.flush();
+                // Overlay the colour cover on top of the flushed 1bpp frame.
+                #[cfg(feature = "ili9341")]
+                if a.screen == app::Screen::NowPlaying {
+                    if let Some(art) = &a.art {
+                        ffi::ili9341::blit_rgb565(
+                            display::mini_player::ART_X as u16,
+                            display::mini_player::ART_Y as u16,
+                            art.px as u16,
+                            art.px as u16,
+                            &art.data,
+                        );
+                    }
+                }
                 a.dirty = false;
             }
         }
@@ -112,14 +154,19 @@ fn main() -> anyhow::Result<()> {
 
 /// Decode the current track and stream it to the speaker until end-of-track,
 /// pause, or skip. Reacts to commands from the main thread.
-fn audio_loop(app: Arc<Mutex<App>>, sink: audio::Audio, rx: mpsc::Receiver<Command>) {
+fn audio_loop(
+    app: Arc<Mutex<App>>,
+    sink: audio::Audio,
+    rx: mpsc::Receiver<Command>,
+    art_tx: mpsc::Sender<Option<Vec<u8>>>,
+) {
     let mut current: Option<Box<dyn decoder::Decoder>> = None;
     let mut pcm = [0i16; decoder::BLOCK_FRAMES * audio::CHANNELS as usize];
 
     loop {
         match rx.try_recv() {
             Ok(Command::LoadCurrent) | Ok(Command::Play) => {
-                current = load_current(&app);
+                current = load_current(&app, &art_tx);
             }
             Ok(Command::Pause) => {
                 sink.pause();
@@ -143,14 +190,19 @@ fn audio_loop(app: Arc<Mutex<App>>, sink: audio::Audio, rx: mpsc::Receiver<Comma
             Ok(0) => {
                 let cmd = app.lock().unwrap().on_track_end();
                 if cmd == Command::LoadCurrent {
-                    current = load_current(&app);
+                    current = load_current(&app, &art_tx);
                 }
             }
             Ok(n) => {
                 sink.play_block(&pcm[..n]);
-                let frames = n / audio::CHANNELS as usize;
+                // Use the track's real rate/channels so the clock matches the
+                // audio (tracks aren't always 44.1k stereo).
+                let info = dec.info();
+                let ch = (info.channels as usize).max(1);
+                let sr = info.sample_rate.max(1);
+                let frames = n / ch;
                 let mut a = app.lock().unwrap();
-                a.position += Duration::from_secs_f32(frames as f32 / audio::SAMPLE_RATE as f32);
+                a.position += Duration::from_secs_f32(frames as f32 / sr as f32);
             }
             Err(e) => {
                 log::error!("decode error: {e}");
@@ -162,22 +214,30 @@ fn audio_loop(app: Arc<Mutex<App>>, sink: audio::Audio, rx: mpsc::Receiver<Comma
 
 /// Open a decoder for the app's current track, stamping its real duration back
 /// into the queue entry.
-fn load_current(app: &Arc<Mutex<App>>) -> Option<Box<dyn decoder::Decoder>> {
+fn load_current(
+    app: &Arc<Mutex<App>>,
+    art_tx: &mpsc::Sender<Option<Vec<u8>>>,
+) -> Option<Box<dyn decoder::Decoder>> {
     let path = {
         let a = app.lock().unwrap();
         a.current()?.path.clone()
     };
     match decoder::open(&path) {
-        Ok(dec) => {
+        Ok(mut dec) => {
             let info = dec.info();
             ffi::audio_out::init(info.sample_rate, info.channels);
-            let mut a = app.lock().unwrap();
-            let idx = a.index;
-            if let Some(t) = a.queue.get_mut(idx) {
-                t.duration = info.duration;
+            let cover = dec.cover();
+            {
+                let mut a = app.lock().unwrap();
+                let idx = a.index;
+                if let Some(t) = a.queue.get_mut(idx) {
+                    t.duration = info.duration;
+                }
+                a.position = Duration::ZERO;
+                a.art = None; // clear old art until the new one decodes
+                a.dirty = true;
             }
-            a.position = Duration::ZERO;
-            a.dirty = true;
+            let _ = art_tx.send(cover); // decode off-thread
             log::info!(
                 "playing {} ({} Hz, {} ch)",
                 path,

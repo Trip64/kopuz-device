@@ -18,6 +18,11 @@ pub trait Decoder {
     /// Fill `out` with up to BLOCK_FRAMES*channels samples. Returns the number
     /// of samples written; 0 means end-of-stream.
     fn decode_into(&mut self, out: &mut [i16]) -> anyhow::Result<usize>;
+    /// Take the embedded cover-art image bytes (JPEG/PNG), if any. Consumed on
+    /// first call so it isn't held for the life of the decoder.
+    fn cover(&mut self) -> Option<Vec<u8>> {
+        None
+    }
 }
 
 /// Minimal WAV reader: skips the 44-byte canonical header, streams PCM16.
@@ -97,6 +102,7 @@ pub struct SymphoniaDecoder {
     sample_buf: Option<SampleBuffer<i16>>,
     buf: Vec<i16>,
     cursor: usize,
+    cover: Option<Vec<u8>>,
 }
 
 impl SymphoniaDecoder {
@@ -113,7 +119,18 @@ impl SymphoniaDecoder {
             &Default::default(),
             &Default::default(),
         )?;
-        let format = probed.format;
+        let mut metadata = probed.metadata;
+        let mut format = probed.format;
+
+        // First embedded picture, from the stream metadata (FLAC PICTURE,
+        // in-stream ID3 APIC) or the probe metadata (leading ID3v2 on MP3).
+        let mut cover = first_visual(&mut format.metadata());
+        if cover.is_none() {
+            if let Some(m) = metadata.get() {
+                cover = first_visual_rev(m.current());
+            }
+        }
+
         let track = format
             .default_track()
             .ok_or_else(|| anyhow::anyhow!("no audio track in {path}"))?;
@@ -134,13 +151,29 @@ impl SymphoniaDecoder {
             sample_buf: None,
             buf: Vec::new(),
             cursor: 0,
+            cover,
         })
     }
+}
+
+fn first_visual(meta: &mut symphonia::core::meta::Metadata) -> Option<Vec<u8>> {
+    first_visual_rev(meta.current())
+}
+
+fn first_visual_rev(
+    rev: Option<&symphonia::core::meta::MetadataRevision>,
+) -> Option<Vec<u8>> {
+    rev.and_then(|r| r.visuals().first())
+        .map(|v| v.data.to_vec())
 }
 
 impl Decoder for SymphoniaDecoder {
     fn info(&self) -> StreamInfo {
         self.info
+    }
+
+    fn cover(&mut self) -> Option<Vec<u8>> {
+        self.cover.take()
     }
 
     fn decode_into(&mut self, out: &mut [i16]) -> anyhow::Result<usize> {

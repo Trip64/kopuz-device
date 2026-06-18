@@ -219,6 +219,19 @@ Uses the board's dedicated SD header (separate SPI3 bus). Pins are defined in
 > This board has **8 MB octal PSRAM** — `sdkconfig.defaults` sets
 > `CONFIG_SPIRAM_MODE_OCT=y`. Quad mode would hang at boot on this octal chip.
 
+## Album art
+
+Embedded cover (FLAC PICTURE / MP3 ID3 APIC, **JPEG only**) is decoded
+**downscaled to ≤128px** (`art.rs` `scale(128,128)` — full-res decode OOMs the
+heap), then dithered to 1bpp for the Now Playing box. No embedded art / PNG →
+placeholder.
+
+> **WiFi + online lyrics were removed.** The WiFi stack reserved so much
+> internal DMA RAM that SD reads failed (`esp_dma_capable_malloc: Not enough
+> heap` → `sdmmc_read_blocks failed`) and threads couldn't spawn. Lyrics were
+> WiFi's only consumer, so both are gone. (Local `.lrc` could be re-added
+> offline later if wanted.)
+
 ## Bluetooth audio — not supported (hardware)
 
 The ESP32-**S3** has **BLE only — no Bluetooth Classic / no A2DP**, so it

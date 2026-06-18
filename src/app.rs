@@ -103,6 +103,9 @@ pub struct App {
     /// Battery voltage in mV (after divider), or -1 if unknown / no battery.
     pub battery_mv: i32,
 
+    /// Decoded cover art for the current track (set by the art thread).
+    pub art: Option<crate::art::ArtBmp>,
+
     pub dirty: bool,
 }
 
@@ -132,8 +135,32 @@ impl App {
             repeat: Repeat::Off,
             brightness: 100,
             battery_mv: -1,
+            art: None,
             dirty: true,
         }
+    }
+
+    /// Next `n` upcoming tracks (master indices) after the current position.
+    pub fn upcoming(&self, n: usize) -> heapless::Vec<usize, 8> {
+        let mut v = heapless::Vec::new();
+        let len = self.play_order.len();
+        if len == 0 {
+            return v;
+        }
+        for k in 1..=n {
+            let idx = self.play_pos + k;
+            let m = if idx < len {
+                self.play_order[idx]
+            } else if self.repeat == Repeat::All {
+                self.play_order[idx % len]
+            } else {
+                break;
+            };
+            if v.push(m).is_err() {
+                break;
+            }
+        }
+        v
     }
 
     pub fn current(&self) -> Option<&Track> {
@@ -195,7 +222,7 @@ impl App {
             Screen::Albums => &mut self.albums_sel,
             Screen::Artists => &mut self.artists_sel,
             Screen::AlbumTracks | Screen::ArtistTracks => &mut self.group_sel,
-            // NowPlaying has no list; Prev/Next skip tracks instead.
+            // NowPlaying has no selectable list; handled specially.
             Screen::NowPlaying | Screen::Settings => &mut self.settings_sel,
         }
     }
@@ -214,7 +241,8 @@ impl App {
                 crate::ffi::audio_out::set_volume(self.volume);
                 Command::None
             }
-            // On Now Playing, Prev/Next skip tracks; elsewhere they scroll.
+            // On Now Playing, Prev/Next skip tracks; elsewhere they move the
+            // list selection.
             Button::Next => {
                 if self.screen == Screen::NowPlaying {
                     self.skip(1)
@@ -339,9 +367,10 @@ impl App {
                 Command::Play
             }
             PlaybackState::Stopped => {
-                if self.play_order.is_empty() {
+                if self.play_order.is_empty() && !self.ensure_order() {
                     return Command::None;
                 }
+                self.index = self.play_order[self.play_pos];
                 self.state = PlaybackState::Playing;
                 self.position = Duration::ZERO;
                 Command::LoadCurrent
@@ -349,9 +378,24 @@ impl App {
         }
     }
 
+    /// If no play order exists yet, seed it from the whole library so the
+    /// transport buttons work even before anything was picked from a list.
+    /// Returns false if the library is empty.
+    fn ensure_order(&mut self) -> bool {
+        if !self.play_order.is_empty() {
+            return true;
+        }
+        if self.queue.is_empty() {
+            return false;
+        }
+        self.play_order = (0..self.queue.len()).collect();
+        self.play_pos = self.index.min(self.queue.len() - 1);
+        true
+    }
+
     /// Skip to the previous/next track in the play order (Now Playing).
     fn skip(&mut self, delta: isize) -> Command {
-        if self.play_order.is_empty() {
+        if !self.ensure_order() {
             return Command::None;
         }
         let n = self.play_order.len() as isize;

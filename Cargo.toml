@@ -39,6 +39,9 @@ embedded-graphics = "0.8"
 # const tables fit). wav stays hand-rolled.
 symphonia = { version = "0.5", default-features = false, features = ["flac", "mp3"] }
 
+# Decode embedded cover-art JPEGs (downscaled + dithered to 1bpp for the panel).
+jpeg-decoder = { version = "0.3", default-features = false }
+
 [features]
 # Display backend. Default = Waveshare 2.13" e-paper. Build with
 # `--features ili9341` to target an ILI9341 320x240 SPI TFT instead (no touch).

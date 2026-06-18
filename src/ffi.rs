@@ -61,6 +61,10 @@ pub mod ili9341 {
     pub fn set_brightness(pct: u8) {
         unsafe { sys::ili9341_set_brightness(pct) };
     }
+    /// Blit an RGB565 (big-endian) rectangle to the panel.
+    pub fn blit_rgb565(x: u16, y: u16, w: u16, h: u16, data: &[u8]) {
+        unsafe { sys::ili9341_blit_rgb565(x, y, w, h, data.as_ptr()) };
+    }
 }
 
 pub mod battery {

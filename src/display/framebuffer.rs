@@ -16,6 +16,7 @@ mod backend {
     pub const FRAME_BYTES: usize = EPD_FRAME_BYTES;
     pub const LCD_W: usize = EPD_HEIGHT; // 250
     pub const LCD_H: usize = EPD_WIDTH; //  122
+    pub const ART_PX: usize = 48; // album-art box edge (multiple of 8)
 
     /// Landscape (lx, ly) -> physical portrait byte/bit, 90° rotation.
     #[inline]
@@ -33,6 +34,7 @@ mod backend {
     pub const FRAME_BYTES: usize = ILI_FRAME_BYTES;
     pub const LCD_W: usize = ILI_WIDTH; //  320
     pub const LCD_H: usize = ILI_HEIGHT; // 240
+    pub const ART_PX: usize = 112; // album-art box edge (multiple of 8)
 
     /// Native landscape, no rotation.
     #[inline]
@@ -41,7 +43,7 @@ mod backend {
     }
 }
 
-pub use backend::{FRAME_BYTES, LCD_H, LCD_W};
+pub use backend::{ART_PX, FRAME_BYTES, LCD_H, LCD_W};
 
 pub struct FrameBuffer {
     buf: [u8; FRAME_BYTES],
@@ -65,6 +67,19 @@ impl FrameBuffer {
 
     pub fn as_bytes(&self) -> &[u8; FRAME_BYTES] {
         &self.buf
+    }
+
+    /// Blit a 1bpp bitmap (`(w+7)/8` bytes per row, MSB first, bit 1 = white)
+    /// at landscape (x0, y0). Used to draw decoded album art.
+    pub fn blit_1bpp(&mut self, x0: i32, y0: i32, w: usize, h: usize, data: &[u8]) {
+        let rb = (w + 7) / 8;
+        for yy in 0..h {
+            for xx in 0..w {
+                let byte = data[yy * rb + (xx >> 3)];
+                let white = (byte >> (7 - (xx & 7))) & 1 == 1;
+                self.set_pixel(x0 as usize + xx, y0 as usize + yy, !white);
+            }
+        }
     }
 
     #[inline]
