@@ -45,6 +45,11 @@ impl Display {
         self.full_refreshes = self.full_refreshes.wrapping_add(1);
     }
 
+    /// e-paper has no cheap partial-region push, so just do a normal flush.
+    pub fn flush_rect(&mut self, _x: i32, _y: i32, _w: i32, _h: i32) {
+        self.flush();
+    }
+
     pub fn sleep(&mut self) {
         crate::ffi::epd::sleep();
     }
@@ -68,6 +73,18 @@ impl Display {
     /// TFT is fast: just push the whole frame each time.
     pub fn flush(&mut self) {
         crate::ffi::ili9341::display_frame(self.fb.as_bytes());
+    }
+
+    /// Push only a sub-rectangle (per-second progress update) so the colour art
+    /// elsewhere isn't re-flushed and flickered.
+    pub fn flush_rect(&mut self, x: i32, y: i32, w: i32, h: i32) {
+        crate::ffi::ili9341::display_region(
+            self.fb.as_bytes(),
+            x.max(0) as u16,
+            y.max(0) as u16,
+            w as u16,
+            h as u16,
+        );
     }
 
     pub fn sleep(&mut self) {}

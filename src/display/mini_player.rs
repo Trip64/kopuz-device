@@ -158,6 +158,8 @@ fn row_text(app: &App, i: usize) -> heapless::String<48> {
                 "Repeat" => write!(s, "Repeat: {}", repeat_str(app.repeat)),
                 "Volume" => write!(s, "Volume: {}", app.volume),
                 "Brightness" => write!(s, "Brightness: {}", app.brightness),
+                #[cfg(feature = "ili9341")]
+                "Theme" => write!(s, "Theme: {}", crate::app::THEMES[app.theme].0),
                 other => write!(s, "{other}"),
             };
         }

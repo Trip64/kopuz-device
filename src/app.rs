@@ -72,7 +72,38 @@ pub const MENU: [&str; 5] = ["Now Playing", "Songs", "Albums", "Artists", "Setti
 #[cfg(not(feature = "ili9341"))]
 pub const SETTINGS: &[&str] = &["Shuffle", "Repeat", "Volume"];
 #[cfg(feature = "ili9341")]
-pub const SETTINGS: &[&str] = &["Shuffle", "Repeat", "Volume", "Brightness"];
+pub const SETTINGS: &[&str] = &["Shuffle", "Repeat", "Volume", "Brightness", "Theme"];
+
+/// Colour themes for the ILI9341 (name, ink RGB565, background RGB565). Ported
+/// from rusic's `themes.css` (ink = `--color-white`, bg = `--color-black`).
+/// The 1bpp UI is recoloured with these; album art stays true colour.
+#[cfg(feature = "ili9341")]
+pub const THEMES: &[(&str, u16, u16)] = &[
+    ("Default", 0xFFFF, 0x0000),
+    ("Gruvbox", 0xEED6, 0x2945),
+    ("Gruvbox Soft", 0xFF98, 0x3185),
+    ("Gruvbox Material", 0xD5F3, 0x1904),
+    ("Dracula", 0xFFDE, 0x2946),
+    ("Nord", 0xDEFD, 0x29A8),
+    ("Catppuccin", 0xCEBE, 0x18E5),
+    ("Ef Night", 0xADF7, 0x0062),
+    ("Ayu Dark", 0xB595, 0x0862),
+    ("Ayu Mirage", 0xCE78, 0x1926),
+    ("Vague", 0xCE79, 0x10A2),
+    ("One Dark", 0xAD97, 0x2966),
+    ("Osmium", 0xCEBE, 0x1083),
+    ("Kanagawa", 0xC658, 0x18A2),
+    ("Everforest", 0xD635, 0x2166),
+    ("Rose Pine", 0xE6FE, 0x18A4),
+    ("Kettek16", 0xFFA7, 0x0841),
+    ("Light", 0x1947, 0xFFDF),
+    ("Latte", 0x4A6D, 0xEF9E),
+    ("Rose Pine Dawn", 0x528F, 0xFFBD),
+    ("Everforest Light", 0x5B4E, 0xFFBC),
+    ("Ayu Light", 0x5B0C, 0xFFDF),
+    ("One Light", 0x39C8, 0xFFDF),
+    ("Gruvbox Light", 0x39C6, 0xF737),
+];
 
 pub struct App {
     pub queue: Vec<Track>,
@@ -99,6 +130,8 @@ pub struct App {
     pub repeat: Repeat,
     /// Backlight brightness 0..100 (ILI9341 only; ignored on e-paper).
     pub brightness: u8,
+    /// Selected colour theme index (ILI9341 only).
+    pub theme: usize,
 
     /// Battery voltage in mV (after divider), or -1 if unknown / no battery.
     pub battery_mv: i32,
@@ -134,6 +167,7 @@ impl App {
             shuffle: false,
             repeat: Repeat::Off,
             brightness: 100,
+            theme: 0,
             battery_mv: -1,
             art: None,
             dirty: true,
@@ -347,6 +381,12 @@ impl App {
                 };
                 #[cfg(feature = "ili9341")]
                 crate::ffi::ili9341::set_brightness(self.brightness);
+            }
+            #[cfg(feature = "ili9341")]
+            "Theme" => {
+                self.theme = (self.theme + 1) % THEMES.len();
+                let (_, fg, bg) = THEMES[self.theme];
+                crate::ffi::ili9341::set_theme(fg, bg);
             }
             _ => {}
         }

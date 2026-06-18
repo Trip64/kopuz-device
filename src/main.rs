@@ -109,11 +109,11 @@ fn main() -> anyhow::Result<()> {
         }
 
         tick = tick.wrapping_add(1);
-        if tick % REPAINT_TICKS == 0 {
-            let mut a = app.lock().unwrap();
-            if a.state == PlaybackState::Playing {
-                a.dirty = true;
-            }
+        // Periodic progress update: push ONLY the bottom strip, so the colour
+        // album art above isn't re-flushed (that caused the flashing).
+        let mut progress_due = false;
+        if tick % REPAINT_TICKS == 0 && app.lock().unwrap().state == PlaybackState::Playing {
+            progress_due = true;
         }
 
         // Sample the battery every ~5s; repaint if the reading moved enough.
@@ -145,6 +145,11 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
                 a.dirty = false;
+            } else if progress_due {
+                use display::framebuffer::{LCD_H, LCD_W};
+                display::mini_player::render(display.frame(), &a);
+                const BAND: i32 = 26;
+                display.flush_rect(0, LCD_H as i32 - BAND, LCD_W as i32, BAND);
             }
         }
 

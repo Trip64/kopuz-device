@@ -19,6 +19,16 @@ static const char *TAG = "ili9341";
 static spi_device_handle_t s_spi;
 static bool s_inited;
 
+// 1bpp UI colours (ink / background), RGB565. Default = dark theme. Changed at
+// runtime by ili9341_set_theme.
+static uint16_t s_fg = 0xFFFF;
+static uint16_t s_bg = 0x0000;
+
+void ili9341_set_theme(uint16_t fg, uint16_t bg) {
+    s_fg = fg;
+    s_bg = bg;
+}
+
 static void spi_write(const uint8_t *data, size_t len) {
     if (len == 0) return;
     spi_transaction_t t = {
@@ -96,6 +106,25 @@ static void set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
 
 static void set_addr_window(void) {
     set_window(0, 0, ILI_WIDTH - 1, ILI_HEIGHT - 1);
+}
+
+void ili9341_display_region(const uint8_t *mono, uint16_t x, uint16_t y,
+                            uint16_t w, uint16_t h) {
+    if (!s_inited || w == 0 || h == 0) return;
+    if (x + w > ILI_WIDTH || y + h > ILI_HEIGHT) return;
+    static uint8_t line[ILI_WIDTH * 2];
+    set_window(x, y, x + w - 1, y + h - 1);
+    for (uint16_t ry = 0; ry < h; ry++) {
+        const uint8_t *row = &mono[(size_t)(y + ry) * ILI_ROW_BYTES];
+        for (uint16_t rx = 0; rx < w; rx++) {
+            uint16_t px = x + rx;
+            int bit = (row[px >> 3] >> (7 - (px & 7))) & 1;
+            uint16_t c = bit ? s_bg : s_fg;
+            line[rx * 2] = c >> 8;
+            line[rx * 2 + 1] = c & 0xFF;
+        }
+        send_data_buf(line, (size_t)w * 2);
+    }
 }
 
 void ili9341_blit_rgb565(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
@@ -196,13 +225,13 @@ static void fill_color(uint16_t color) {
 }
 
 void ili9341_clear(void) {
-    fill_color(ILI_COLOR_BG);
+    fill_color(s_bg);
 }
 
 void ili9341_display_frame(const uint8_t *mono) {
     static uint8_t line[ILI_WIDTH * 2];
-    const uint8_t fg_hi = ILI_COLOR_FG >> 8, fg_lo = ILI_COLOR_FG & 0xFF;
-    const uint8_t bg_hi = ILI_COLOR_BG >> 8, bg_lo = ILI_COLOR_BG & 0xFF;
+    const uint8_t fg_hi = s_fg >> 8, fg_lo = s_fg & 0xFF;
+    const uint8_t bg_hi = s_bg >> 8, bg_lo = s_bg & 0xFF;
 
     set_addr_window();
     for (int y = 0; y < ILI_HEIGHT; y++) {

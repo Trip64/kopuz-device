@@ -65,6 +65,15 @@ pub mod ili9341 {
     pub fn blit_rgb565(x: u16, y: u16, w: u16, h: u16, data: &[u8]) {
         unsafe { sys::ili9341_blit_rgb565(x, y, w, h, data.as_ptr()) };
     }
+    /// Push only a sub-rectangle of the 1bpp frame (used for the per-second
+    /// progress update, so the colour art on top isn't flushed/flickered).
+    pub fn display_region(buf: &[u8; ILI_FRAME_BYTES], x: u16, y: u16, w: u16, h: u16) {
+        unsafe { sys::ili9341_display_region(buf.as_ptr(), x, y, w, h) };
+    }
+    /// Set the 1bpp UI colours (ink / background) as RGB565. Theme switch.
+    pub fn set_theme(fg: u16, bg: u16) {
+        unsafe { sys::ili9341_set_theme(fg, bg) };
+    }
 }
 
 pub mod battery {
