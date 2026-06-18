@@ -1,0 +1,30 @@
+# ESP-IDF config baked into the build. Override per-board as needed.
+
+# --- CPU / FreeRTOS --------------------------------------------------------
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_FREERTOS_HZ=1000
+
+# --- Main task stack: Rust std + FATFS scan + UI render needs headroom ------
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=40960
+
+# --- Console over native USB-Serial-JTAG so `espflash monitor` shows logs ---
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# --- Flash: this board reports 4 MB, no PSRAM (esp32s3 rev v0.1) ------------
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# 8 MB Octal PSRAM (S3-WROOM-1 R8). MODE_OCT is required — Quad mode fails to
+# init on an octal chip (looks like a boot hang). Allow .bss in PSRAM to free
+# internal DRAM for big decoder/codec buffers.
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+
+# --- FATFS on SD card for the music library --------------------------------
+CONFIG_FATFS_LFN_HEAP=y
+CONFIG_FATFS_MAX_LFN=255

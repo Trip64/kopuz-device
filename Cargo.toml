@@ -1,0 +1,58 @@
+[package]
+name = "kopuz-device"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+resolver = "2"
+description = "Standalone Kopuz music-player firmware for Deneyap Kart 1A v2 (ESP32-S3) with Waveshare 2.13in e-paper"
+
+[[bin]]
+name = "kopuz-device"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+debug = 2
+
+[profile.dev]
+# Bare debug build is too slow / too big for the chip.
+opt-level = "s"
+debug = 2
+
+[dependencies]
+# --- ESP-IDF (std) ---------------------------------------------------------
+esp-idf-svc = { version = "0.51", features = ["binstart"] }
+esp-idf-hal = "0.45"
+esp-idf-sys = "0.36"
+
+# --- high-level Rust -------------------------------------------------------
+anyhow = "1"
+log = "0.4"
+heapless = "0.8"
+
+# 1bpp UI rendering into our own framebuffer (works on std).
+embedded-graphics = "0.8"
+
+# Audio decode in Rust. FLAC + MP3 (board has 8MB octal PSRAM, so the mp3
+# const tables fit). wav stays hand-rolled.
+symphonia = { version = "0.5", default-features = false, features = ["flac", "mp3"] }
+
+[build-dependencies]
+embuild = "0.33"
+
+# ---------------------------------------------------------------------------
+# Native C components. esp-idf-sys compiles each `component_dirs` entry as a
+# real ESP-IDF component (full SDK: SPI/GPIO/I2S/FreeRTOS) and runs bindgen
+# over `bindings_header`, exposing the C API to Rust as `esp_idf_sys::*`.
+# This is the Rust-high / C-low FFI boundary.
+# ---------------------------------------------------------------------------
+[[package.metadata.esp-idf-sys.extra_components]]
+component_dirs = [
+    "components/epd",
+    "components/buttons",
+    "components/audio_out",
+    "components/storage",
+]
+bindings_header = "src/bindings.h"

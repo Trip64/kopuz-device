@@ -1,0 +1,6 @@
+# Name,   Type, SubType, Offset,  Size,   Flags
+# 4 MB flash layout: 2 MB app (image is ~0.5 MB, room to grow) + ~1.9 MB FAT.
+nvs,      data, nvs,     0x9000,  0x6000,
+phy_init, data, phy,     0xf000,  0x1000,
+factory,  app,  factory, 0x10000, 2M,
+storage,  data, fat,     ,        0x1F0000,

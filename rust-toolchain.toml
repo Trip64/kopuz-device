@@ -1,0 +1,5 @@
+# Xtensa target needs the espup-managed fork. Install with:
+#   cargo install espup && espup install
+#   . ~/export-esp.sh   (sets up PATH/IDF env each shell)
+[toolchain]
+channel = "esp"
