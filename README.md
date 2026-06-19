@@ -200,6 +200,32 @@ LiPo into the board's battery JST — no extra wiring. The header shows an icon 
 percentage; with no pack (USB only) it reads `USB`. If your board's divider
 ratio differs, adjust `BAT_DIVIDER` in `components/battery/battery.c`.
 
+### LDR ambient-light sensor (auto-brightness) — `components/ldr/ldr.c`
+
+Optional. Dims the **ILI9341 TFT backlight** to match the room (no effect on the
+e-paper build — reflective panel, no backlight). Sensed on **GPIO17 = ADC2_CH6**
+(ADC2 because the battery owns the ADC1 unit; GPIO17 dodges the SD bus, speaker,
+buttons, and native-USB pins). With no LDR wired the firmware probes once at boot
+and leaves the backlight at full.
+
+An LDR has 2 legs and only changes resistance — pair it with **one separate fixed
+resistor** (~10 kΩ) to make a voltage divider the ADC can read. Three wires:
+
+| Wire | From | To | Silkscreen |
+|------|------|-----|-----------|
+| 1 | LDR leg A | 3V3 | 3V3 |
+| 2 | LDR leg B **+** Rfixed leg A (joined) | **GPIO17** | D8 |
+| 3 | Rfixed leg B | GND | GND |
+
+```
+3V3 ── LDR ──┬── GPIO17 (ADC2_CH6)   <- ADC reads this junction
+             └── Rfixed ── GND
+```
+
+Bright light lowers LDR resistance → pin voltage rises → brighter backlight.
+Wired the other way? Invert the map in `src/main.rs`. Tune `DARK_RAW`/`BRIGHT_RAW`
+and `MIN_PCT`/`MAX_PCT` there to your room.
+
 ### Buttons (×5, to GND) — `components/buttons/buttons.c`
 
 See the **Controls** section above for the button → GPIO map and what each does.
