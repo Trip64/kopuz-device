@@ -4,3 +4,4 @@
 #include "audio_out.h"
 #include "storage.h"
 #include "battery.h"
+#include "ldr.h"

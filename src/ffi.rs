@@ -93,6 +93,22 @@ pub mod battery {
     }
 }
 
+pub mod ldr {
+    use super::*;
+
+    pub fn init() {
+        unsafe { sys::ldr_init() };
+    }
+    pub fn read_raw() -> Option<i32> {
+        let raw = unsafe { sys::ldr_read_raw() };
+        if raw < 0 {
+            None
+        } else {
+            Some(raw)
+        }
+    }
+}
+
 pub mod buttons {
     use super::*;
 

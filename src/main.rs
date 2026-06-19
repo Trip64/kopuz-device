@@ -41,6 +41,8 @@ fn main() -> anyhow::Result<()> {
 
     ffi::buttons::init();
     ffi::battery::init();
+    #[cfg(feature = "ili9341")]
+    ffi::ldr::init();
     let audio_sink = audio::Audio::new();
     let mut display = display::Display::new();
     log::info!("init done");
@@ -99,6 +101,22 @@ fn main() -> anyhow::Result<()> {
 
     log::info!("main loop, {} tracks", app.lock().unwrap().queue.len());
     let mut tick: u32 = 0;
+    #[cfg(feature = "ili9341")]
+    let mut bright_ema: f32 = 80.0;
+    #[cfg(feature = "ili9341")]
+    let mut last_bright: u8 = 0;
+    // Detect whether an LDR is actually wired: a real divider reads mid-scale,
+    // a disconnected pin floats to a rail. No sensor -> never touch brightness.
+    #[cfg(feature = "ili9341")]
+    let ldr_present = {
+        let r = ffi::ldr::read_raw().unwrap_or(0);
+        let present = r > 40 && r < 4055;
+        log::info!("LDR probe raw={r} present={present}");
+        if !present {
+            ffi::ili9341::set_brightness(100);
+        }
+        present
+    };
     loop {
         while let Some(btn) = ffi::buttons::poll() {
             log::info!("button {btn:?}");
@@ -114,6 +132,24 @@ fn main() -> anyhow::Result<()> {
         let mut progress_due = false;
         if tick % REPAINT_TICKS == 0 && app.lock().unwrap().state == PlaybackState::Playing {
             progress_due = true;
+        }
+
+        #[cfg(feature = "ili9341")]
+        if ldr_present && tick % 10 == 0 {
+            if let Some(raw) = ffi::ldr::read_raw() {
+                const DARK_RAW: f32 = 300.0;
+                const BRIGHT_RAW: f32 = 3000.0;
+                const MIN_PCT: f32 = 12.0;
+                const MAX_PCT: f32 = 100.0;
+                let t = ((raw as f32 - DARK_RAW) / (BRIGHT_RAW - DARK_RAW)).clamp(0.0, 1.0);
+                let target = MIN_PCT + t * (MAX_PCT - MIN_PCT);
+                bright_ema += (target - bright_ema) * 0.25;
+                let pct = bright_ema.round() as u8;
+                if pct.abs_diff(last_bright) >= 3 {
+                    ffi::ili9341::set_brightness(pct);
+                    last_bright = pct;
+                }
+            }
         }
 
         // Sample the battery every ~5s; repaint if the reading moved enough.

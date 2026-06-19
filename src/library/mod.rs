@@ -11,8 +11,10 @@ use std::path::Path;
 
 pub const MOUNT_POINT: &str = "/sdcard";
 
-/// Cap so a huge card can't exhaust RAM.
-const MAX_TRACKS: usize = 512;
+/// Cap so a runaway scan can't loop forever. High enough for a full card —
+/// Track strings live in PSRAM (CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL pushes the
+/// many small allocs to external RAM), so thousands of tracks fit in the 8 MB.
+const MAX_TRACKS: usize = 20000;
 
 const EXTS: &[&str] = &["mp3", "flac"];
 

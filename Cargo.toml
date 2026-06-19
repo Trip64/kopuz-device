@@ -64,5 +64,6 @@ component_dirs = [
     "components/audio_out",
     "components/storage",
     "components/battery",
+    "components/ldr",
 ]
 bindings_header = "src/bindings.h"
