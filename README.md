@@ -9,7 +9,7 @@ with a **Waveshare 2.13" e-Paper HAT (V2)** display. Companion hardware to the
 | Layer | Language | Where |
 |-------|----------|-------|
 | Audio decode, library scan, mini-player UI, app state | **Rust** | `src/` |
-| E-paper SPI driver, button GPIO/ISR, audio sink (PWM/I2S) | **C** | `components/` |
+| E-paper SPI driver, button GPIO/ISR, audio sink (I2S DAC) | **C** | `components/` |
 
 The C bits are real **ESP-IDF components** (full SDK: SPI, GPIO, I2S, FreeRTOS).
 `esp-idf-sys` compiles them and runs bindgen over `src/bindings.h`, so Rust
@@ -28,7 +28,7 @@ src/
 components/
   epd/             Waveshare 2.13" SSD1680 driver (full + partial refresh)
   buttons/         5 debounced active-low buttons (GPIO ISR)
-  audio_out/       PWM speaker backend now, I2S DAC later (one #define)
+  audio_out/       I2S DAC (PCM5102A) backend; PWM speaker fallback (one #define)
   storage/         SD card SDSPI -> FATFS mount at /sdcard
 ```
 
@@ -133,9 +133,10 @@ For a full from-scratch C rebuild (rarely needed): `cargo clean && cargo build -
 3. **Back/Forward** scroll the list, **Select** plays the highlighted track.
    The progress/time updates on screen every few seconds while playing.
 
-Audio comes out the PWM pin (GPIO15) into the active speaker. FLAC and MP3
-decode today (via symphonia); a hand-rolled WAV reader also exists but the
-library scan only picks up `.flac`/`.mp3`.
+Audio comes out the PCM5102A I2S DAC's 3.5 mm stereo jack (BCK=GPIO47,
+LCK=GPIO18, DIN=GPIO21). FLAC and MP3 decode today (via symphonia); a
+hand-rolled WAV reader also exists but the library scan only picks up
+`.flac`/`.mp3`.
 
 ## Wiring (Deneyap Kart 1A v2)
 
@@ -182,15 +183,29 @@ touch pins are unused.
 SPI runs at 40 MHz. The 1bpp UI is rendered full-screen and expanded to RGB565
 (white background / black text) — monochrome look on the colour panel for now.
 
-### Deneyap Hoparlör (active speaker, PAM8302A) — `components/audio_out/audio_out.c`
+### PCM5102A I2S DAC (stereo line-out) — `components/audio_out/audio_out.c`
 
-Use the dedicated speaker port for power; feed the audio signal from one PWM pin:
+Real I2S DAC; replaces the old PWM speaker. Stereo audio comes out the module's
+3.5 mm jack. Pins are the `I2S_PIN_*` defines at the top of `audio_out.c`:
 
-| Speaker pin | Connect to | Notes |
-|-------------|-----------|-------|
-| VCC / 3V3   | 3V3       | via the JST power connector |
-| GND         | GND       | |
-| IN (signal) | **GPIO15** (A4) | PWM today, swap to I2S DAC later |
+| DAC pin | Connect to GPIO | Silkscreen | Notes |
+|---------|-----------------|------------|-------|
+| VIN     | 5V              | 5V / VIN   | onboard regulator drops to 3.3 V for the codec |
+| GND     | GND             | GND        | |
+| BCK     | **GPIO47**      | SDA        | bit clock |
+| LCK     | **GPIO18**      | A7         | LRCLK / word select |
+| DIN     | **GPIO21**      | SCL        | serial data out from ESP |
+| SCK     | **GND**         | GND        | **must** tie low → module derives MCLK from BCK via internal PLL |
+| XSMT    | 3V3             | 3V3        | soft-unmute; most purple boards pull this high already |
+| FLT/DEMP/FMT | GND        | GND        | leave at board defaults |
+
+> **GPIO15 (silk A4) is NOT used for audio** — it doubles as the ILI9341
+> backlight in this build, so driving I2S BCK on it dimmed the screen. BCK moved
+> to GPIO47 (SDA). SDA/SCL are the I2C pins, free here since no I2C is used.
+> **Removed the old PWM speaker.** To fall back to the PWM buzzer, flip
+> `AUDIO_BACKEND_I2S` → `AUDIO_BACKEND_PWM` in `audio_out.c` (note: PWM uses GPIO15,
+> which now conflicts with the backlight). If these pins aren't broken out on your
+> board silk, edit the `I2S_PIN_*` defines.
 
 ### Battery (LiPo) — `components/battery/battery.c`
 
@@ -263,18 +278,17 @@ placeholder.
 The ESP32-**S3** has **BLE only — no Bluetooth Classic / no A2DP**, so it
 *cannot* stream audio to Bluetooth headphones or speakers. A2DP needs Classic
 BT, which only the original ESP32 has. For wireless out you'd add an external
-BT-audio transmitter fed over I2S. Audio here is the PWM speaker (or a future
-I2S DAC).
+BT-audio transmitter fed over I2S. Audio here is the wired PCM5102A I2S DAC.
 
 ## Notes / next steps
 
 - **Formats:** FLAC + MP3 (symphonia, with the `flac`+`mp3` features). The board
   has 8 MB octal PSRAM so the mp3 tables fit. Vorbis is still off.
-- **Audio out:** the PWM backend mirrors the proven Deneyap BadApple engine — a
-  40 kHz LEDC carrier on GPIO15 plus a **gptimer ISR firing at the sample rate**
-  that pops 8-bit samples from a ring buffer and writes the LEDC duty directly
-  (`ledc_ll`, IRAM-safe). `audio_out_write` is just the feeder. For real fidelity,
-  flip `AUDIO_BACKEND_I2S` in `components/audio_out/audio_out.c` and implement the
-  `i2s_channel_write` path when an I2S DAC is wired.
+- **Audio out:** PCM5102A I2S DAC via the IDF `i2s_std` driver (16-bit stereo,
+  Philips format, MCLK unused — SCK tied to GND for the module's internal PLL).
+  `audio_out_write` attenuates by volume, duplicates mono → L+R, and blocks on
+  `i2s_channel_write`. The old 40 kHz LEDC-PWM buzzer backend (GPIO15 + gptimer
+  ISR + ring buffer, from the Deneyap BadApple engine) is kept under
+  `AUDIO_BACKEND_PWM` in `components/audio_out/audio_out.c` as a fallback.
 - **E-paper:** full refresh on first paint + every ~10th, partial (flicker-free)
   in between for list scrolling.

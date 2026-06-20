@@ -9,9 +9,132 @@ static volatile uint8_t s_volume = 70;
 static uint32_t s_sample_rate;
 static uint8_t s_channels;
 
-#define AUDIO_BACKEND_PWM 1
+#define AUDIO_BACKEND_I2S 1
 
-#if defined(AUDIO_BACKEND_PWM)
+#if defined(AUDIO_BACKEND_I2S)
+#include "driver/i2s_std.h"
+
+#define I2S_PIN_BCK   GPIO_NUM_47
+#define I2S_PIN_WS    GPIO_NUM_18
+#define I2S_PIN_DOUT  GPIO_NUM_21
+
+#define I2S_CHUNK_FRAMES 256
+
+static i2s_chan_handle_t s_tx;
+static bool s_inited;
+static bool s_running;
+
+static esp_err_t i2s_apply_clock(uint32_t sample_rate) {
+    i2s_std_clk_config_t clk = I2S_STD_CLK_DEFAULT_CONFIG(sample_rate);
+    return i2s_channel_reconfig_std_clock(s_tx, &clk);
+}
+
+int audio_out_init(uint32_t sample_rate, uint8_t channels) {
+    s_sample_rate = sample_rate ? sample_rate : 44100;
+    s_channels = channels ? channels : 1;
+
+    if (s_inited) {
+        if (s_running) {
+            i2s_channel_disable(s_tx);
+            s_running = false;
+        }
+        esp_err_t e = i2s_apply_clock(s_sample_rate);
+        if (e != ESP_OK) {
+            ESP_LOGE(TAG, "reconfig clock: %s", esp_err_to_name(e));
+            return -1;
+        }
+        i2s_channel_enable(s_tx);
+        s_running = true;
+        ESP_LOGI(TAG, "retuned to %u Hz, %u ch", s_sample_rate, s_channels);
+        return 0;
+    }
+
+    i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
+    chan_cfg.dma_desc_num = 16;
+    chan_cfg.dma_frame_num = 480;
+    esp_err_t e;
+    if ((e = i2s_new_channel(&chan_cfg, &s_tx, NULL)) != ESP_OK) {
+        ESP_LOGE(TAG, "i2s_new_channel: %s", esp_err_to_name(e));
+        return -1;
+    }
+
+    i2s_std_config_t std_cfg = {
+        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(s_sample_rate),
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT,
+                                                        I2S_SLOT_MODE_STEREO),
+    };
+    std_cfg.gpio_cfg = (i2s_std_gpio_config_t){
+            .mclk = I2S_GPIO_UNUSED,
+            .bclk = I2S_PIN_BCK,
+            .ws   = I2S_PIN_WS,
+            .dout = I2S_PIN_DOUT,
+            .din  = I2S_GPIO_UNUSED,
+            .invert_flags = {
+                .mclk_inv = false,
+                .bclk_inv = false,
+                .ws_inv   = false,
+            },
+    };
+    if ((e = i2s_channel_init_std_mode(s_tx, &std_cfg)) != ESP_OK) {
+        ESP_LOGE(TAG, "i2s_channel_init_std_mode: %s", esp_err_to_name(e));
+        return -1;
+    }
+    if ((e = i2s_channel_enable(s_tx)) != ESP_OK) {
+        ESP_LOGE(TAG, "i2s_channel_enable: %s", esp_err_to_name(e));
+        return -1;
+    }
+
+    s_inited = true;
+    s_running = true;
+    ESP_LOGI(TAG, "I2S backend up: BCK=%d WS=%d DOUT=%d, %u Hz, %u ch -> PCM5102A",
+             I2S_PIN_BCK, I2S_PIN_WS, I2S_PIN_DOUT, s_sample_rate, s_channels);
+    return 0;
+}
+
+size_t audio_out_write(const int16_t *samples, size_t sample_count) {
+    if (!s_inited) return 0;
+    if (!s_running) {
+        i2s_channel_enable(s_tx);
+        s_running = true;
+    }
+
+    uint8_t ch = s_channels ? s_channels : 1;
+    size_t frames = sample_count / ch;
+    int32_t scratch[I2S_CHUNK_FRAMES * 2];
+    size_t done = 0;
+
+    while (done < frames) {
+        size_t n = frames - done;
+        if (n > I2S_CHUNK_FRAMES) n = I2S_CHUNK_FRAMES;
+
+        for (size_t i = 0; i < n; i++) {
+            const int16_t *src = &samples[(done + i) * ch];
+            int32_t l = ((int32_t)src[0] * s_volume) / 100;
+            int32_t r = (ch > 1)
+                            ? ((int32_t)src[1] * s_volume) / 100
+                            : l;
+            scratch[i * 2]     = l << 16;
+            scratch[i * 2 + 1] = r << 16;
+        }
+
+        size_t wrote = 0;
+        if (i2s_channel_write(s_tx, scratch, n * 2 * sizeof(int32_t),
+                              &wrote, portMAX_DELAY) != ESP_OK) {
+            break;
+        }
+        done += n;
+    }
+    return done * ch;
+}
+
+void audio_out_stop(void) {
+    if (s_inited && s_running) {
+        i2s_channel_disable(s_tx);
+        s_running = false;
+    }
+}
+
+#elif defined(AUDIO_BACKEND_PWM)
 #include "driver/ledc.h"
 #include "driver/gptimer.h"
 #include "hal/ledc_ll.h"
@@ -25,7 +148,7 @@ static uint8_t s_channels;
 
 #define PWM_SILENCE    128
 
-#define VOLUME_BOOST_X 4   // gain at vol=100 (hard-clipped); bump if still quiet
+#define VOLUME_BOOST_X 4
 
 #define RING_SIZE  8192u
 #define RING_MASK  (RING_SIZE - 1u)
@@ -137,15 +260,14 @@ int audio_out_init(uint32_t sample_rate, uint8_t channels) {
     return 0;
 }
 
-size_t audio_out_write(const int16_t *samples, size_t frames) {
+size_t audio_out_write(const int16_t *samples, size_t sample_count) {
+    uint8_t ch = s_channels ? s_channels : 1;
+    size_t frames = sample_count / ch;
     for (size_t i = 0; i < frames; i++) {
-        int32_t s = samples[i * s_channels];
-        if (s_channels > 1) {
-            s = (s + samples[i * s_channels + 1]) / 2;
+        int32_t s = samples[i * ch];
+        if (ch > 1) {
+            s = (s + samples[i * ch + 1]) / 2;
         }
-        // Volume is a gain, not just attenuation: music RMS sits far below
-        // full-scale, so vol=100 boosts by VOLUME_BOOST_X and hard-clips. This
-        // is what makes PWM playback actually loud. vol = 100/BOOST -> unity.
         s = (s * (int32_t)s_volume * VOLUME_BOOST_X) / 100;
         if (s > 32767) s = 32767;
         else if (s < -32768) s = -32768;
@@ -158,7 +280,7 @@ size_t audio_out_write(const int16_t *samples, size_t frames) {
         s_ring[s_head] = pwm;
         s_head = next;
     }
-    return frames;
+    return frames * ch;
 }
 
 void audio_out_stop(void) {
@@ -166,8 +288,6 @@ void audio_out_stop(void) {
     if (s_hw) pwm_set_duty(PWM_SILENCE);
 }
 
-#elif defined(AUDIO_BACKEND_I2S)
-#error "I2S backend not implemented yet"
 #endif
 
 void audio_out_set_volume(uint8_t volume) {

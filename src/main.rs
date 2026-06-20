@@ -66,14 +66,14 @@ fn main() -> anyhow::Result<()> {
     display.flush();
 
     sd::mount()?;
-    let queue = library::scan(library::MOUNT_POINT).unwrap_or_default();
-    let app = Arc::new(Mutex::new(App::new(queue)));
-    app.lock().unwrap().battery_mv = ffi::battery::read_mv().unwrap_or(-1);
+
+    // Spawn the worker threads before the library scan: their stacks come from
+    // internal RAM, which a large (1000+) track list would otherwise exhaust,
+    // failing thread creation with ENOMEM. Scan and fill the queue afterwards.
+    let app = Arc::new(Mutex::new(App::new(Vec::new())));
 
     let (tx, rx) = mpsc::channel::<Command>();
 
-    // Cover-art decode pipeline: audio thread sends raw image bytes (or None),
-    // the art thread decodes/dithers off the audio + UI paths.
     let (art_tx, art_rx) = mpsc::channel::<Option<Vec<u8>>>();
     {
         let app = Arc::clone(&app);
@@ -95,8 +95,15 @@ fn main() -> anyhow::Result<()> {
         let art_tx = art_tx.clone();
         std::thread::Builder::new()
             .name("audio".into())
-            .stack_size(64 * 1024) // symphonia MP3 decode overflows a smaller stack -> reboot
+            .stack_size(64 * 1024)
             .spawn(move || audio_loop(app, audio_sink, rx, art_tx))?;
+    }
+
+    let queue = library::scan(library::MOUNT_POINT).unwrap_or_default();
+    {
+        let mut a = app.lock().unwrap();
+        *a = App::new(queue);
+        a.battery_mv = ffi::battery::read_mv().unwrap_or(-1);
     }
 
     log::info!("main loop, {} tracks", app.lock().unwrap().queue.len());
@@ -113,7 +120,7 @@ fn main() -> anyhow::Result<()> {
         let present = r > 40 && r < 4055;
         log::info!("LDR probe raw={r} present={present}");
         if !present {
-            ffi::ili9341::set_brightness(100);
+            ffi::ili9341::set_brightness(25);
         }
         present
     };
@@ -140,7 +147,7 @@ fn main() -> anyhow::Result<()> {
                 const DARK_RAW: f32 = 300.0;
                 const BRIGHT_RAW: f32 = 3000.0;
                 const MIN_PCT: f32 = 12.0;
-                const MAX_PCT: f32 = 100.0;
+                const MAX_PCT: f32 = 30.0;
                 let t = ((raw as f32 - DARK_RAW) / (BRIGHT_RAW - DARK_RAW)).clamp(0.0, 1.0);
                 let target = MIN_PCT + t * (MAX_PCT - MIN_PCT);
                 bright_ema += (target - bright_ema) * 0.25;

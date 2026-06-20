@@ -27,9 +27,10 @@ impl Audio {
         Self
     }
 
-    /// Push one decoded block of interleaved S16 to the speaker.
+    /// Push one decoded block of interleaved S16 to the DAC. Channel count is
+    /// whatever was passed to the last `audio_out::init` (the track's real one).
     pub fn play_block(&self, pcm: &[i16]) {
-        audio_out::write(pcm, CHANNELS);
+        audio_out::write(pcm);
     }
 
     pub fn pause(&self) {

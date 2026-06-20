@@ -47,6 +47,7 @@ static void IRAM_ATTR isr_handler(void *arg) {
             if (b->press_us == 0) return;
             int64_t held = now - b->press_us;
             b->press_us = 0;
+            b->last_us = now;
             btn_event_t ev = (held >= LONGPRESS_US) ? BTN_BACK : BTN_PLAY_PAUSE;
             xQueueSendFromISR(s_queue, &ev, NULL);
         }
