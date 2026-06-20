@@ -15,9 +15,9 @@ pub const BLOCK_FRAMES: usize = 1024;
 
 pub trait Decoder {
     fn info(&self) -> StreamInfo;
-    /// Fill `out` with up to BLOCK_FRAMES*channels samples. Returns the number
-    /// of samples written; 0 means end-of-stream.
-    fn decode_into(&mut self, out: &mut [i16]) -> anyhow::Result<usize>;
+    /// Fill `out` with up to BLOCK_FRAMES*channels samples (full-scale S32).
+    /// Returns the number of samples written; 0 means end-of-stream.
+    fn decode_into(&mut self, out: &mut [i32]) -> anyhow::Result<usize>;
     /// Take the embedded cover-art image bytes (JPEG/PNG), if any. Consumed on
     /// first call so it isn't held for the life of the decoder.
     fn cover(&mut self) -> Option<Vec<u8>> {
@@ -42,6 +42,7 @@ impl WavDecoder {
 
         let channels = u16::from_le_bytes([header[22], header[23]]) as u8;
         let sample_rate = u32::from_le_bytes([header[24], header[25], header[26], header[27]]);
+        let bits_per_sample = u16::from_le_bytes([header[34], header[35]]) as u32;
         let data_len = u32::from_le_bytes([header[40], header[41], header[42], header[43]]);
         let bytes_per_sec = sample_rate * channels as u32 * 2;
         let secs = if bytes_per_sec > 0 {
@@ -55,6 +56,7 @@ impl WavDecoder {
             info: StreamInfo {
                 sample_rate,
                 channels: channels.max(1),
+                bits_per_sample: bits_per_sample.max(16),
                 duration: Duration::from_secs(secs as u64),
             },
         })
@@ -66,13 +68,14 @@ impl Decoder for WavDecoder {
         self.info
     }
 
-    fn decode_into(&mut self, out: &mut [i16]) -> anyhow::Result<usize> {
+    fn decode_into(&mut self, out: &mut [i32]) -> anyhow::Result<usize> {
         let mut bytes = [0u8; BLOCK_FRAMES * 2 * 2];
         let want = out.len().min(bytes.len() / 2) * 2;
         let n = self.rdr.read(&mut bytes[..want])?;
         let samples = n / 2;
         for i in 0..samples {
-            out[i] = i16::from_le_bytes([bytes[i * 2], bytes[i * 2 + 1]]);
+            let s = i16::from_le_bytes([bytes[i * 2], bytes[i * 2 + 1]]);
+            out[i] = (s as i32) << 16;
         }
         Ok(samples)
     }
@@ -99,8 +102,8 @@ pub struct SymphoniaDecoder {
     codec: Box<dyn SymCodec>,
     track_id: u32,
     info: StreamInfo,
-    sample_buf: Option<SampleBuffer<i16>>,
-    buf: Vec<i16>,
+    sample_buf: Option<SampleBuffer<i32>>,
+    buf: Vec<i32>,
     cursor: usize,
     cover: Option<Vec<u8>>,
 }
@@ -137,6 +140,7 @@ impl SymphoniaDecoder {
         let params = &track.codec_params;
         let sample_rate = params.sample_rate.unwrap_or(44_100);
         let channels = params.channels.map(|c| c.count()).unwrap_or(2) as u8;
+        let bits_per_sample = params.bits_per_sample.unwrap_or(16);
         let duration = match params.n_frames {
             Some(n) => Duration::from_secs_f64(n as f64 / sample_rate as f64),
             None => Duration::ZERO,
@@ -147,7 +151,7 @@ impl SymphoniaDecoder {
             format,
             codec,
             track_id,
-            info: StreamInfo { sample_rate, channels, duration },
+            info: StreamInfo { sample_rate, channels, bits_per_sample, duration },
             sample_buf: None,
             buf: Vec::new(),
             cursor: 0,
@@ -163,7 +167,9 @@ fn first_visual(meta: &mut symphonia::core::meta::Metadata) -> Option<Vec<u8>> {
 fn first_visual_rev(
     rev: Option<&symphonia::core::meta::MetadataRevision>,
 ) -> Option<Vec<u8>> {
+    const MAX_COVER_BYTES: usize = 1024 * 1024;
     rev.and_then(|r| r.visuals().first())
+        .filter(|v| v.data.len() <= MAX_COVER_BYTES)
         .map(|v| v.data.to_vec())
 }
 
@@ -176,7 +182,7 @@ impl Decoder for SymphoniaDecoder {
         self.cover.take()
     }
 
-    fn decode_into(&mut self, out: &mut [i16]) -> anyhow::Result<usize> {
+    fn decode_into(&mut self, out: &mut [i32]) -> anyhow::Result<usize> {
         let mut written = 0;
         while written < out.len() {
             if self.cursor < self.buf.len() {
@@ -204,7 +210,7 @@ impl Decoder for SymphoniaDecoder {
                         None => true,
                     };
                     if need_new {
-                        self.sample_buf = Some(SampleBuffer::<i16>::new(cap, spec));
+                        self.sample_buf = Some(SampleBuffer::<i32>::new(cap, spec));
                     }
                     let sb = self.sample_buf.as_mut().unwrap();
                     sb.copy_interleaved_ref(decoded);

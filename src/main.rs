@@ -49,10 +49,10 @@ fn main() -> anyhow::Result<()> {
 
     log::info!("audio test tone");
     {
-        let mut tone = [0i16; audio::SAMPLE_RATE as usize / 10 * 2];
+        let mut tone = vec![0i32; audio::SAMPLE_RATE as usize / 10 * 2];
         let half = (audio::SAMPLE_RATE / 440 / 2) as usize;
         for (i, frame) in tone.chunks_mut(2).enumerate() {
-            let v = if (i / half) % 2 == 0 { 16000 } else { -16000 };
+            let v: i32 = if (i / half) % 2 == 0 { 16000 << 16 } else { -16000 << 16 };
             frame[0] = v;
             frame[1] = v;
         }
@@ -209,7 +209,7 @@ fn audio_loop(
     art_tx: mpsc::Sender<Option<Vec<u8>>>,
 ) {
     let mut current: Option<Box<dyn decoder::Decoder>> = None;
-    let mut pcm = [0i16; decoder::BLOCK_FRAMES * audio::CHANNELS as usize];
+    let mut pcm = [0i32; decoder::BLOCK_FRAMES * audio::CHANNELS as usize];
 
     loop {
         match rx.try_recv() {
@@ -287,9 +287,10 @@ fn load_current(
             }
             let _ = art_tx.send(cover); // decode off-thread
             log::info!(
-                "playing {} ({} Hz, {} ch)",
+                "playing {} ({} Hz, {}-bit, {} ch)",
                 path,
                 info.sample_rate,
+                info.bits_per_sample,
                 info.channels
             );
             Some(dec)

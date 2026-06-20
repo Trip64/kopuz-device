@@ -137,9 +137,9 @@ pub mod audio_out {
     pub fn init(sample_rate: u32, channels: u8) {
         unsafe { sys::audio_out_init(sample_rate, channels) };
     }
-    /// Write interleaved S16 samples; channel count comes from `init`. Returns
+    /// Write interleaved S32 samples; channel count comes from `init`. Returns
     /// samples accepted.
-    pub fn write(samples: &[i16]) -> usize {
+    pub fn write(samples: &[i32]) -> usize {
         unsafe { sys::audio_out_write(samples.as_ptr(), samples.len()) }
     }
     pub fn set_volume(vol: u8) {

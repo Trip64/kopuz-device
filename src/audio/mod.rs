@@ -27,9 +27,9 @@ impl Audio {
         Self
     }
 
-    /// Push one decoded block of interleaved S16 to the DAC. Channel count is
+    /// Push one decoded block of interleaved S32 to the DAC. Channel count is
     /// whatever was passed to the last `audio_out::init` (the track's real one).
-    pub fn play_block(&self, pcm: &[i16]) {
+    pub fn play_block(&self, pcm: &[i32]) {
         audio_out::write(pcm);
     }
 
@@ -49,5 +49,6 @@ impl Default for Audio {
 pub struct StreamInfo {
     pub sample_rate: u32,
     pub channels: u8,
+    pub bits_per_sample: u32,
     pub duration: Duration,
 }

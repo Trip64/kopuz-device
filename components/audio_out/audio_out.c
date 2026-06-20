@@ -50,7 +50,7 @@ int audio_out_init(uint32_t sample_rate, uint8_t channels) {
     }
 
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
-    chan_cfg.dma_desc_num = 16;
+    chan_cfg.dma_desc_num = 8;
     chan_cfg.dma_frame_num = 480;
     esp_err_t e;
     if ((e = i2s_new_channel(&chan_cfg, &s_tx, NULL)) != ESP_OK) {
@@ -91,7 +91,7 @@ int audio_out_init(uint32_t sample_rate, uint8_t channels) {
     return 0;
 }
 
-size_t audio_out_write(const int16_t *samples, size_t sample_count) {
+size_t audio_out_write(const int32_t *samples, size_t sample_count) {
     if (!s_inited) return 0;
     if (!s_running) {
         i2s_channel_enable(s_tx);
@@ -108,13 +108,13 @@ size_t audio_out_write(const int16_t *samples, size_t sample_count) {
         if (n > I2S_CHUNK_FRAMES) n = I2S_CHUNK_FRAMES;
 
         for (size_t i = 0; i < n; i++) {
-            const int16_t *src = &samples[(done + i) * ch];
-            int32_t l = ((int32_t)src[0] * s_volume) / 100;
+            const int32_t *src = &samples[(done + i) * ch];
+            int32_t l = (int32_t)(((int64_t)src[0] * s_volume) / 100);
             int32_t r = (ch > 1)
-                            ? ((int32_t)src[1] * s_volume) / 100
+                            ? (int32_t)(((int64_t)src[1] * s_volume) / 100)
                             : l;
-            scratch[i * 2]     = l << 16;
-            scratch[i * 2 + 1] = r << 16;
+            scratch[i * 2]     = l;
+            scratch[i * 2 + 1] = r;
         }
 
         size_t wrote = 0;
@@ -260,13 +260,13 @@ int audio_out_init(uint32_t sample_rate, uint8_t channels) {
     return 0;
 }
 
-size_t audio_out_write(const int16_t *samples, size_t sample_count) {
+size_t audio_out_write(const int32_t *samples, size_t sample_count) {
     uint8_t ch = s_channels ? s_channels : 1;
     size_t frames = sample_count / ch;
     for (size_t i = 0; i < frames; i++) {
-        int32_t s = samples[i * ch];
+        int32_t s = samples[i * ch] >> 16;
         if (ch > 1) {
-            s = (s + samples[i * ch + 1]) / 2;
+            s = (s + (samples[i * ch + 1] >> 16)) / 2;
         }
         s = (s * (int32_t)s_volume * VOLUME_BOOST_X) / 100;
         if (s > 32767) s = 32767;

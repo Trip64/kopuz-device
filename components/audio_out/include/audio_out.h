@@ -9,10 +9,10 @@ extern "C" {
 
 int audio_out_init(uint32_t sample_rate, uint8_t channels);
 
-// `sample_count` = number of interleaved int16 samples in `samples` (length of
-// the slice, NOT frames). Channel count comes from audio_out_init. Returns the
-// number of samples consumed.
-size_t audio_out_write(const int16_t *samples, size_t sample_count);
+// `sample_count` = number of interleaved int32 samples in `samples` (length of
+// the slice, NOT frames). Samples are full-scale signed 32-bit; channel count
+// comes from audio_out_init. Returns the number of samples consumed.
+size_t audio_out_write(const int32_t *samples, size_t sample_count);
 
 void audio_out_set_volume(uint8_t volume);
 
