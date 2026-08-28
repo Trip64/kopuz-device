@@ -390,8 +390,32 @@ static void render_list(framebuffer_t *fb, const app_state_t *app) {
                     break;
             }
 
-            size_t max_chars = (size_t)((fb->width - 12) / font_6x10.width);
-            fb_draw_text_trunc(fb, 6, y + 1, line, max_chars, &font_6x10, is_selected);
+            if (fb->width >= 360 && (app->screen == SCREEN_SONGS || app->screen == SCREEN_ALBUM_TRACKS || app->screen == SCREEN_ARTIST_TRACKS)) {
+                uint16_t master = idx;
+                if (app->screen == SCREEN_ALBUM_TRACKS) {
+                    master = app->albums[app->open_group].track_indices[idx];
+                } else if (app->screen == SCREEN_ARTIST_TRACKS) {
+                    master = app->artists[app->open_group].track_indices[idx];
+                }
+
+                const char *m = " ";
+                if (master == app->current_index && app->state != PLAYBACK_STOPPED) {
+                    m = state_glyph(app->state);
+                }
+                char title_buf[64];
+                snprintf(title_buf, sizeof(title_buf), "%s %s", m, app->queue[master].title);
+                size_t t_cap = (size_t)((fb->width - 170) / font_6x10.width);
+                fb_draw_text_trunc(fb, 6, y + 1, title_buf, t_cap, &font_6x10, is_selected);
+
+                fb_draw_text_trunc(fb, fb->width - 160, y + 1, app->queue[master].artist, 18, &font_6x10, is_selected);
+
+                char dur_str[16];
+                format_mmss(app->queue[master].duration_secs, dur_str, sizeof(dur_str));
+                fb_draw_text(fb, fb->width - 44, y + 1, dur_str, &font_6x10, is_selected);
+            } else {
+                size_t max_chars = (size_t)((fb->width - 12) / font_6x10.width);
+                fb_draw_text_trunc(fb, 6, y + 1, line, max_chars, &font_6x10, is_selected);
+            }
 
             if (app->screen == SCREEN_SETTINGS && fb->width >= 200) {
                 if (idx == 2) {
@@ -523,8 +547,134 @@ static void render_now_playing(framebuffer_t *fb, const app_state_t *app) {
             snprintf(next_str, sizeof(next_str), "> %s", app->queue[upcoming[0]].title);
             fb_draw_text_trunc(fb, 2, 94, next_str, 20, &font_6x10, false);
         }
+    } else if (fb->width >= 360) {
+        // Widescreen Pro Dashboard Layout (Sharp 400x240, STM32F7 480x272)
+        int16_t ax = 6;
+        int16_t ay = get_ui_body_top(fb) + 2;
+        int16_t art_size = 80;
+
+        if (app->art_valid && app->art_rgb565) {
+            fb_draw_rect(fb, ax, ay, art_size, art_size, true);
+#if defined(TARGET_SIMULATOR)
+            if (!hal_sim_display_is_color()) {
+                draw_dithered_art_1bpp(fb, ax + 1, ay + 1, art_size - 2, app->art_rgb565, app->art_size ? app->art_size : 80);
+            }
+#elif !COLOR_DISPLAY
+            draw_dithered_art_1bpp(fb, ax + 1, ay + 1, art_size - 2, app->art_rgb565, app->art_size ? app->art_size : 80);
+#endif
+        } else {
+            fb_draw_rect(fb, ax, ay, art_size, art_size, true);
+            fb_draw_rect(fb, ax + 2, ay + 2, art_size - 4, art_size - 4, true);
+            const char *g = state_glyph(app->state);
+            int16_t gw = (int16_t)strlen(g) * font_8x13_bold.width;
+            fb_draw_text(fb, ax + (art_size - gw) / 2, ay + (art_size - font_8x13_bold.height) / 2, g, &font_8x13_bold, false);
+        }
+
+        // Left Column: Spectrum Visualizer & Track Indicator below art
+        int16_t by = fb->height - 24;
+        int16_t vu_y = ay + art_size + 6;
+        int16_t vu_max_h = by - vu_y - 18;
+        if (vu_max_h > 46) vu_max_h = 46;
+        if (vu_max_h >= 12) {
+            draw_spectrum(fb, ax + 1, vu_y, vu_max_h, app);
+        }
+
+        char trk_idx_str[32];
+        snprintf(trk_idx_str, sizeof(trk_idx_str), "TRK %u/%u", (unsigned)(app->current_index + 1), (unsigned)app->queue_len);
+        fb_draw_text(fb, ax + 2, by - 12, trk_idx_str, &font_6x10, false);
+
+        // Center Column: Track Metadata & Technical Specs
+        int16_t cx = ax + art_size + 10;
+        int16_t split_x = fb->width - 156;
+        fb_draw_line(fb, split_x - 6, ay, split_x - 6, by - 2, true);
+
+        size_t c_cap = (size_t)((split_x - cx - 10) / font_6x10.width);
+        size_t c_bold_cap = (size_t)((split_x - cx - 10) / font_8x13_bold.width);
+
+        fb_draw_text_trunc(fb, cx, ay, cur->title, c_bold_cap, &font_8x13_bold, false);
+        fb_draw_text_trunc(fb, cx, ay + 15, cur->artist, c_cap, &font_6x10, false);
+        fb_draw_text_trunc(fb, cx, ay + 27, cur->album, c_cap, &font_6x10, false);
+        fb_draw_line(fb, cx, ay + 41, split_x - 12, ay + 41, true);
+
+        char fmt_line[64] = {0};
+        if (app->format_badge[0] != '\0') {
+            snprintf(fmt_line, sizeof(fmt_line), "AUDIO: %s", app->format_badge);
+        } else {
+            snprintf(fmt_line, sizeof(fmt_line), "AUDIO: PCM 16b/44.1k");
+        }
+        fb_draw_text_trunc(fb, cx, ay + 47, fmt_line, c_cap, &font_6x10, false);
+
+        char mode_line[64];
+        snprintf(mode_line, sizeof(mode_line), "MODES: %s  %s", app->shuffle ? "SHUF" : "NORM", repeat_str(app->repeat));
+        fb_draw_text_trunc(fb, cx, ay + 59, mode_line, c_cap, &font_6x10, false);
+
+        char dsp_line[64];
+        snprintf(dsp_line, sizeof(dsp_line), "VOL:   %u%%  EQ:Flat", app->volume);
+        fb_draw_text_trunc(fb, cx, ay + 71, dsp_line, c_cap, &font_6x10, false);
+
+        char buf_line[64];
+        snprintf(buf_line, sizeof(buf_line), "BUF:   100%% (4KB)");
+        fb_draw_text_trunc(fb, cx, ay + 83, buf_line, c_cap, &font_6x10, false);
+
+        char st_line[64];
+        snprintf(st_line, sizeof(st_line), "STATE: %s", (app->state == PLAYBACK_PLAYING) ? "PLAYING" : ((app->state == PLAYBACK_PAUSED) ? "PAUSED" : "STOPPED"));
+        fb_draw_text_trunc(fb, cx, ay + 95, st_line, c_cap, &font_6x10, false);
+
+        // Right Column: Dedicated Up Next In Queue
+        int16_t rx = split_x;
+        size_t r_cap = (size_t)((fb->width - rx - 4) / font_6x10.width);
+        fb_draw_text(fb, rx, ay, "UP NEXT IN QUEUE:", &font_6x10, false);
+        fb_draw_line(fb, rx, ay + 11, fb->width - 4, ay + 11, true);
+
+        int16_t q_avail = by - 4 - (ay + 15);
+        int16_t rows = q_avail / 12;
+        if (rows > 8) rows = 8;
+
+        if (rows > 0) {
+            uint16_t upcoming[8];
+            size_t up_count = app_get_upcoming(app, upcoming, (size_t)rows);
+            for (size_t k = 0; k < up_count; k++) {
+                uint16_t trk_idx = upcoming[k];
+                if (trk_idx < app->queue_len) {
+                    char row_str[96];
+                    char d_str[16];
+                    format_mmss(app->queue[trk_idx].duration_secs, d_str, sizeof(d_str));
+                    snprintf(row_str, sizeof(row_str), "%u.%s", (unsigned)(k + 1), app->queue[trk_idx].title);
+                    fb_draw_text_trunc(fb, rx, ay + 15 + (int16_t)k * 12, row_str, r_cap > 5 ? (r_cap - 5) : r_cap, &font_6x10, false);
+                    fb_draw_text(fb, fb->width - 34, ay + 15 + (int16_t)k * 12, d_str, &font_6x10, false);
+                }
+            }
+        }
+
+        // Bottom Progress Bar & Time
+        float frac = 0.0f;
+        if (cur->duration_secs > 0) {
+            frac = (float)(app->position_ms / 1000) / (float)cur->duration_secs;
+        }
+        draw_progress_bar(fb, 4, by, fb->width - 8, frac);
+
+        char pos_str[16], dur_str[16], rem_str[16];
+        format_mmss(app->position_ms / 1000, pos_str, sizeof(pos_str));
+        format_mmss(cur->duration_secs, dur_str, sizeof(dur_str));
+        uint32_t rem_sec = (cur->duration_secs > (app->position_ms / 1000)) ? (cur->duration_secs - (app->position_ms / 1000)) : 0;
+        format_mmss(rem_sec, rem_str, sizeof(rem_str));
+
+        fb_draw_text(fb, 4, by + 8, pos_str, &font_6x10, false);
+
+        char mid_title[96];
+        snprintf(mid_title, sizeof(mid_title), "%s %s", state_glyph(app->state), cur->title);
+        int16_t mid_w = (int16_t)strlen(mid_title) * font_6x10.width;
+        int16_t mid_x = (fb->width - mid_w) / 2;
+        if (mid_x > 60 && mid_x + mid_w < fb->width - 70) {
+            fb_draw_text(fb, mid_x, by + 8, mid_title, &font_6x10, false);
+        }
+
+        char tline_right[32];
+        snprintf(tline_right, sizeof(tline_right), "-%s / %s", rem_str, dur_str);
+        int16_t rx_t = fb->width - (int16_t)strlen(tline_right) * font_6x10.width - 4;
+        fb_draw_text(fb, rx_t, by + 8, tline_right, &font_6x10, false);
     } else {
-        // Wide / Full-Size Color & E-Ink Layout (320x170, 320x240, 400x240, 480x272, 296x128)
+        // Wide / Full-Size Color & E-Ink Layout (320x170 T-Display, 320x240 ILI9341, 296x128 BWR E-Paper)
         int16_t ax = 4;
         int16_t ay = get_ui_body_top(fb) + 2;
         int16_t art_size = (fb->height <= 130) ? 48 : ((fb->height <= 180) ? 56 : 80);
