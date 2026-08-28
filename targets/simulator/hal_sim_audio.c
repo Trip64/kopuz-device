@@ -105,3 +105,8 @@ void hal_audio_close(void) {
         s_running = false;
     }
 }
+
+void hal_audio_beep(uint16_t freq_hz, uint16_t duration_ms) {
+    (void)freq_hz;
+    (void)duration_ms;
+}

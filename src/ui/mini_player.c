@@ -288,8 +288,12 @@ static void render_list(framebuffer_t *fb, const app_state_t *app) {
                     else if (idx == 2) snprintf(line, sizeof(line), "Volume:        %u%%", app->volume);
                     else if (idx == 3) snprintf(line, sizeof(line), "Brightness:    %u%%", app->brightness);
                     else if (idx == 4) snprintf(line, sizeof(line), "Theme:      %s", THEMES[app->theme_index].name);
+#if HAS_BLE_AUDIO
                     else if (idx == 5) snprintf(line, sizeof(line), "Output:     [%s]", (app->output_mode == OUTPUT_BLE_AUDIO) ? "BLE AUDIO" : "I2S DAC");
                     else if (idx == 6) snprintf(line, sizeof(line), "Visualizer: [%s]", app->vu_enabled ? "ON" : "OFF");
+#else
+                    else if (idx == 5) snprintf(line, sizeof(line), "Visualizer: [%s]", app->vu_enabled ? "ON" : "OFF");
+#endif
                     break;
                 case SCREEN_SONGS: {
                     const char *m = " ";

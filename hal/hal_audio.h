@@ -36,6 +36,9 @@ void hal_audio_resume(void);
 // Deinitialize audio sink
 void hal_audio_close(void);
 
+// Play an instant pleasant UI feedback tone/chime (e.g. 1200 Hz, 30 ms)
+void hal_audio_beep(uint16_t freq_hz, uint16_t duration_ms);
+
 #ifdef __cplusplus
 }
 #endif

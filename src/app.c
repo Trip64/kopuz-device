@@ -7,7 +7,11 @@
 #include <string.h>
 
 const char *MENU_ITEMS[5] = {"Now Playing", "Songs", "Albums", "Artists", "Settings"};
+#if HAS_BLE_AUDIO
 const char *SETTINGS_ITEMS[7] = {"Shuffle", "Repeat", "Volume", "Brightness", "Theme", "Output", "Visualizer"};
+#else
+const char *SETTINGS_ITEMS[6] = {"Shuffle", "Repeat", "Volume", "Brightness", "Theme", "Visualizer"};
+#endif
 
 static void shuffle_keep_first(uint16_t *order, uint16_t n, uint16_t chosen_pos) {
     if (n <= 1) return;
@@ -265,12 +269,18 @@ static void toggle_setting(app_state_t *app) {
             app->theme_index = (app->theme_index + 1) % THEMES_COUNT;
             hal_display_set_theme(THEMES[app->theme_index].fg, THEMES[app->theme_index].bg);
             break;
+#if HAS_BLE_AUDIO
         case 5: // Output mode
             app->output_mode = (app->output_mode == OUTPUT_I2S_DAC) ? OUTPUT_BLE_AUDIO : OUTPUT_I2S_DAC;
             break;
         case 6: // Visualizer
             app->vu_enabled = !app->vu_enabled;
             break;
+#else
+        case 5: // Visualizer
+            app->vu_enabled = !app->vu_enabled;
+            break;
+#endif
     }
 }
 

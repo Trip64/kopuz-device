@@ -124,6 +124,7 @@ int main(void) {
     while (1) {
         btn_event_t btn = hal_input_poll();
         while (btn != BTN_NONE) {
+            hal_audio_beep(1400, 20); // Pleasant feedback chime in earphones
             app_command_t cmd = app_on_button(&s_app, btn);
             if (cmd != CMD_NONE) {
                 audio_player_send_command(cmd);

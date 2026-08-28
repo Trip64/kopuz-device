@@ -221,4 +221,40 @@ void hal_audio_close(void) {
     s_running = false;
 }
 
+void hal_audio_beep(uint16_t freq_hz, uint16_t duration_ms) {
+    if (!s_codec_ready) return;
+    if (freq_hz == 0) freq_hz = 1200;
+    if (duration_ms == 0) duration_ms = 25;
+
+    // Fast 64-point sinusoidal table
+    static const int16_t sin_tab[64] = {
+        0, 1599, 3179, 4719, 6198, 7596, 8896, 10080,
+        11136, 12053, 12821, 13432, 13878, 14152, 14251, 14173,
+        13919, 13494, 12903, 12154, 11257, 10224, 9070, 7810,
+        6460, 5038, 3560, 2039, 492, -1066, -2620, -4153,
+        -5649, -7089, -8457, -9737, -10913, -11972, -12899, -13681,
+        -14307, -14766, -15050, -15155, -15079, -14823, -14389, -13778,
+        -13000, -12066, -10992, -9793, -8485, -7086, -5614, -4089,
+        -2530, -956, 622, 2191, 3724, 5204, 6610, 7925
+    };
+
+    uint32_t total_samples = (44100 * duration_ms) / 1000;
+    uint32_t phase = 0;
+    uint32_t phase_inc = (uint32_t)(((uint64_t)freq_hz * 65536) / 44100);
+
+    int32_t buf[128];
+    while (total_samples > 0) {
+        size_t n = (total_samples > 64) ? 64 : total_samples;
+        for (size_t i = 0; i < n; i++) {
+            uint8_t idx = (phase >> 10) & 63;
+            int32_t val = sin_tab[idx];
+            buf[i * 2] = val;     // Left channel
+            buf[i * 2 + 1] = val; // Right channel
+            phase += phase_inc;
+        }
+        hal_audio_write(buf, n * 2);
+        total_samples -= n;
+    }
+}
+
 #endif

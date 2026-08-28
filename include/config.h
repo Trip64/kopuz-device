@@ -57,6 +57,13 @@ extern "C" {
     #define MAX_TRACKS                128
     #define MAX_GROUPS                64
 #endif
+
+#if defined(TARGET_NRF52) || defined(TARGET_NRF54) || defined(TARGET_ESP32)
+    #define HAS_BLE_AUDIO             1
+#else
+    #define HAS_BLE_AUDIO             0
+#endif
+
 #define MAX_PATH_LEN              256
 #define MAX_TITLE_LEN             64
 #define MAX_NAME_LEN              48

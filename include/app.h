@@ -123,7 +123,7 @@ typedef struct {
 } app_state_t;
 
 extern const char *MENU_ITEMS[5];
-extern const char *SETTINGS_ITEMS[7];
+extern const char *SETTINGS_ITEMS[];
 
 void app_init(app_state_t *app);
 void app_set_queue(app_state_t *app, track_t *tracks, uint16_t count);
