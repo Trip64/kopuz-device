@@ -8,7 +8,7 @@
 #include <string.h>
 
 // ==============================================================================
-// Mikromedia Plus for STM32F7 VS1053B Audio Codec & Piezo Driver
+// Mikromedia Plus for STM32F7 VS1053B Codec Driver (Low-Level Register Interface)
 // ==============================================================================
 // Hardware Connections:
 //   SPI2_SCK:  PB13 (AF5)
@@ -18,16 +18,9 @@
 //   BSYNC/XDCS:PD10 (Data Chip Select, active low)
 //   DREQ:      PD9  (Data Request, active high input)
 //   MP3_RST:   PD8  (Hardware Reset, active low)
-//   MMC_CS:    PD12 (Deselct SD on SPI2)
-//   NRF_CS:    PG9  (Deselect nRF on SPI2)
-//   PIEZO:     PB8  (Onboard Piezo Buzzer)
-
-#define VS_SCK_PIN       GPIO_PIN_13
-#define VS_SCK_PORT      GPIOB
-#define VS_MISO_PIN      GPIO_PIN_14
-#define VS_MISO_PORT     GPIOB
-#define VS_MOSI_PIN      GPIO_PIN_15
-#define VS_MOSI_PORT     GPIOB
+//   MMC_CS:    PD12 (MMC/SD CS on SPI2 - must be HIGH)
+//   NRF_CS:    PG9  (nRF24 CS on SPI2 - must be HIGH)
+//   BUZZER:    PB8  (On-board Piezo)
 
 #define VS_XCS_PIN       GPIO_PIN_11   /* MP3_CS */
 #define VS_XCS_PORT      GPIOD
@@ -67,25 +60,35 @@
 #define SCI_AIADDR       0x0A
 #define SCI_VOL          0x0B
 
-static SPI_HandleTypeDef s_hspi2;
 static uint8_t s_volume = 90;
 static bool s_running = false;
 static bool s_codec_ready = false;
 static uint32_t s_sample_rate = 44100;
 static uint8_t s_channels = 2;
 
+static inline uint8_t spi2_transfer(uint8_t byte) {
+    while (!(SPI2->SR & SPI_SR_TXE));
+    *(volatile uint8_t *)&SPI2->DR = byte;
+    while (!(SPI2->SR & SPI_SR_RXNE));
+    return *(volatile uint8_t *)&SPI2->DR;
+}
+
 static void vs1053_spi_slow(void) {
-    s_hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_64; // ~800 kHz
-    HAL_SPI_Init(&s_hspi2);
+    SPI2->CR1 &= ~SPI_CR1_SPE;
+    SPI2->CR1 = SPI_CR1_MSTR | SPI_CR1_SSI | SPI_CR1_SSM | (5 << SPI_CR1_BR_Pos); // DIV64 (~843 kHz)
+    SPI2->CR2 = SPI_CR2_FRXTH | (7 << SPI_CR2_DS_Pos); // 8-bit, 8-bit RXNE threshold
+    SPI2->CR1 |= SPI_CR1_SPE;
 }
 
 static void vs1053_spi_fast(void) {
-    s_hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;  // ~6.75 MHz
-    HAL_SPI_Init(&s_hspi2);
+    SPI2->CR1 &= ~SPI_CR1_SPE;
+    SPI2->CR1 = SPI_CR1_MSTR | SPI_CR1_SSI | SPI_CR1_SSM | (1 << SPI_CR1_BR_Pos); // DIV4 (~13.5 MHz)
+    SPI2->CR2 = SPI_CR2_FRXTH | (7 << SPI_CR2_DS_Pos); // 8-bit, 8-bit RXNE threshold
+    SPI2->CR1 |= SPI_CR1_SPE;
 }
 
 static void vs1053_wait_dreq(void) {
-    uint32_t timeout = 100000;
+    uint32_t timeout = 500000;
     while (!VS_IS_DREQ() && --timeout);
 }
 
@@ -93,8 +96,10 @@ static void vs1053_sci_write(uint8_t reg, uint16_t val) {
     vs1053_wait_dreq();
     VS_XDCS_HIGH();
     VS_XCS_LOW();
-    uint8_t cmd[4] = { 0x02, reg, (uint8_t)(val >> 8), (uint8_t)(val & 0xFF) };
-    HAL_SPI_Transmit(&s_hspi2, cmd, 4, 100);
+    spi2_transfer(0x02); // Opcode Write
+    spi2_transfer(reg);
+    spi2_transfer((uint8_t)(val >> 8));
+    spi2_transfer((uint8_t)(val & 0xFF));
     VS_XCS_HIGH();
     vs1053_wait_dreq();
 }
@@ -103,31 +108,43 @@ static uint16_t vs1053_sci_read(uint8_t reg) {
     vs1053_wait_dreq();
     VS_XDCS_HIGH();
     VS_XCS_LOW();
-    uint8_t cmd[2] = { 0x03, reg };
-    uint8_t rx[2] = {0};
-    HAL_SPI_Transmit(&s_hspi2, cmd, 2, 100);
-    HAL_SPI_Receive(&s_hspi2, rx, 2, 100);
+    spi2_transfer(0x03); // Opcode Read
+    spi2_transfer(reg);
+    uint8_t hi = spi2_transfer(0xFF);
+    uint8_t lo = spi2_transfer(0xFF);
     VS_XCS_HIGH();
     vs1053_wait_dreq();
-    return (rx[0] << 8) | rx[1];
+    return ((uint16_t)hi << 8) | lo;
 }
 
 static void vs1053_sine_test(uint8_t n, uint32_t duration_ms) {
     vs1053_sci_write(SCI_MODE, 0x0820); // SM_SDINEW | SM_TESTS
     vs1053_wait_dreq();
 
-    uint8_t start_cmd[8] = { 0x53, 0xEF, 0x6E, n, 0x00, 0x00, 0x00, 0x00 };
     VS_XCS_HIGH();
     VS_XDCS_LOW();
-    HAL_SPI_Transmit(&s_hspi2, start_cmd, 8, 100);
+    spi2_transfer(0x53);
+    spi2_transfer(0xEF);
+    spi2_transfer(0x6E);
+    spi2_transfer(n);
+    spi2_transfer(0x00);
+    spi2_transfer(0x00);
+    spi2_transfer(0x00);
+    spi2_transfer(0x00);
     VS_XDCS_HIGH();
 
     HAL_Delay(duration_ms);
 
-    uint8_t stop_cmd[8] = { 0x45, 0x78, 0x69, 0x74, 0x00, 0x00, 0x00, 0x00 };
     VS_XCS_HIGH();
     VS_XDCS_LOW();
-    HAL_SPI_Transmit(&s_hspi2, stop_cmd, 8, 100);
+    spi2_transfer(0x45);
+    spi2_transfer(0x78);
+    spi2_transfer(0x69);
+    spi2_transfer(0x74);
+    spi2_transfer(0x00);
+    spi2_transfer(0x00);
+    spi2_transfer(0x00);
+    spi2_transfer(0x00);
     VS_XDCS_HIGH();
 
     vs1053_sci_write(SCI_MODE, 0x0800);
@@ -171,7 +188,9 @@ static void vs1053_send_wav_header(uint32_t sample_rate, uint8_t channels) {
         vs1053_wait_dreq();
         VS_XCS_HIGH();
         VS_XDCS_LOW();
-        HAL_SPI_Transmit(&s_hspi2, &header[i], len, 50);
+        for (int k = 0; k < len; k++) {
+            spi2_transfer(header[i + k]);
+        }
         VS_XDCS_HIGH();
     }
 }
@@ -188,7 +207,7 @@ int hal_audio_init(uint32_t sample_rate, uint8_t channels) {
 
     // 2. Configure SPI2 GPIOs (PB13 SCK, PB14 MISO, PB15 MOSI)
     GPIO_InitTypeDef GPIO_InitStruct = {0};
-    GPIO_InitStruct.Pin = VS_SCK_PIN | VS_MISO_PIN | VS_MOSI_PIN;
+    GPIO_InitStruct.Pin = GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
@@ -202,8 +221,9 @@ int hal_audio_init(uint32_t sample_rate, uint8_t channels) {
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
     HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
-    // Deselect MMC CS so it doesn't collide on SPI2
     HAL_GPIO_WritePin(MMC_CS_PORT, MMC_CS_PIN, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(VS_XCS_PORT, VS_XCS_PIN, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(VS_XDCS_PORT, VS_XDCS_PIN, GPIO_PIN_SET);
 
     // Deselect nRF CS on PG9
     GPIO_InitStruct.Pin = NRF_CS_PIN;
@@ -227,9 +247,6 @@ int hal_audio_init(uint32_t sample_rate, uint8_t channels) {
     GPIO_InitStruct.Pull = GPIO_PULLUP;
     HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
-    VS_XCS_HIGH();
-    VS_XDCS_HIGH();
-
     // 4. Hardware Reset (match mikroC MP3_Set_default_Mode)
     VS_RST_LOW();
     HAL_Delay(20);
@@ -237,18 +254,7 @@ int hal_audio_init(uint32_t sample_rate, uint8_t channels) {
     HAL_Delay(20);
 
     // 5. Initialize SPI2 at slow speed
-    s_hspi2.Instance = SPI2;
-    s_hspi2.Init.Mode = SPI_MODE_MASTER;
-    s_hspi2.Init.Direction = SPI_DIRECTION_2LINES;
-    s_hspi2.Init.DataSize = SPI_DATASIZE_8BIT;
-    s_hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
-    s_hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
-    s_hspi2.Init.NSS = SPI_NSS_SOFT;
-    s_hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
-    s_hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
-    s_hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
     vs1053_spi_slow();
-
     vs1053_wait_dreq();
 
     // 6. Set default mode, clock, bass registers (matching mikroC example)
@@ -260,7 +266,7 @@ int hal_audio_init(uint32_t sample_rate, uint8_t channels) {
     // 7. Switch SPI to fast speed for audio data transfer
     vs1053_spi_fast();
 
-    // 8. Set volume (0 = max, 254 = silence)
+    // 8. Set volume (0 = max volume: 0x0000, 254 = silence)
     hal_audio_set_volume(s_volume);
 
     // 9. Send standard WAV header for PCM decoding
@@ -292,7 +298,9 @@ size_t hal_audio_write(const int32_t *samples, size_t sample_count) {
             vs1053_wait_dreq();
             VS_XCS_HIGH();
             VS_XDCS_LOW();
-            HAL_SPI_Transmit(&s_hspi2, pcm_chunk, 32, 50);
+            for (int k = 0; k < 32; k++) {
+                spi2_transfer(pcm_chunk[k]);
+            }
             VS_XDCS_HIGH();
             chunk_idx = 0;
         }
@@ -303,7 +311,9 @@ size_t hal_audio_write(const int32_t *samples, size_t sample_count) {
         vs1053_wait_dreq();
         VS_XCS_HIGH();
         VS_XDCS_LOW();
-        HAL_SPI_Transmit(&s_hspi2, pcm_chunk, chunk_idx, 50);
+        for (size_t k = 0; k < chunk_idx; k++) {
+            spi2_transfer(pcm_chunk[k]);
+        }
         VS_XDCS_HIGH();
     }
 
@@ -314,13 +324,12 @@ void hal_audio_set_volume(uint8_t volume) {
     s_volume = (volume > 100) ? 100 : volume;
     if (!s_codec_ready) return;
 
-    // Convert 0..100% to VS1053 attenuation (0 = max, 254 = silence)
-    // Map volume 100% -> 0x0000, 50% -> 0x2020, 0% -> 0xFEFE
+    // 0 = max volume (0x0000), 254 = silence
     uint8_t atten;
     if (s_volume == 0) {
         atten = 0xFE;
     } else {
-        atten = (uint8_t)((100 - s_volume) * 80 / 100); // 0 to 80 dB attenuation
+        atten = (uint8_t)((100 - s_volume) * 80 / 100);
     }
     uint16_t vol_reg = ((uint16_t)atten << 8) | atten;
     vs1053_sci_write(SCI_VOL, vol_reg);
@@ -344,21 +353,19 @@ void hal_audio_close(void) {
 
 void hal_audio_beep(uint16_t freq_hz, uint16_t duration_ms) {
     if (freq_hz == 0) freq_hz = 1500;
-    if (duration_ms == 0) duration_ms = 25;
+    if (duration_ms == 0) duration_ms = 30;
 
-    // 1. Toggle on-board Piezo Buzzer (PB8) for physical tactile click
-    uint32_t half_period_us = 1000000 / (freq_hz * 2);
+    // 1. Physical piezo buzzer click (PB8)
     uint32_t cycles = (freq_hz * duration_ms) / 1000;
     for (uint32_t i = 0; i < cycles; i++) {
         HAL_GPIO_WritePin(BUZZER_PORT, BUZZER_PIN, GPIO_PIN_SET);
-        for (volatile int d = 0; d < 400; d++);
+        for (volatile int d = 0; d < 350; d++);
         HAL_GPIO_WritePin(BUZZER_PORT, BUZZER_PIN, GPIO_PIN_RESET);
-        for (volatile int d = 0; d < 400; d++);
+        for (volatile int d = 0; d < 350; d++);
     }
 
-    // 2. Play VS1053 Hardware Sine Tone on Earphones
+    // 2. VS1053 hardware sine test tone to earphones
     if (s_codec_ready) {
-        // VS1053 Sine test Freq parameter: 0x7E = ~1000Hz @ 44.1kHz
         vs1053_sine_test(0x7E, duration_ms);
     }
 }
