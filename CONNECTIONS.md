@@ -149,13 +149,107 @@ Connect external MicroSD card adapter to the header pins:
 
 ---
 
-## 3. Summary Comparison Table
+## 3. Nordic Semiconductor nRF52840
 
-| Feature | Desktop Simulator | RP2040 / RP2350 | LilyGO T-Display S3 |
+The nRF52840 firmware supports both high-quality I2S audio output and multiple display configurations (I2C OLED, SPI Color LCD, or E-Ink).
+
+### 3.1 Audio Output (I2S Master + EasyDMA)
+Connects to standard 3-wire I2S DACs (e.g. PCM5102A, MAX98357A, UDA1334A):
+
+| DAC Pin | Signal Name | nRF52840 Pin | Notes |
 |:---|:---|:---|:---|
-| Display Panel | SDL2 Native Window | ILI9341 2.8-inch SPI TFT (Original) | ST7789V 1.9-inch 8-bit Parallel (Onboard) |
-| Display Resolution | 320x170 (or 320x240) | 320 x 240 (Original QVGA) | 320 x 170 (Wide Landscape) |
-| Color Depth | 16-bit RGB565 | 16-bit RGB565 | 16-bit RGB565 |
-| Audio Output | SDL2 Audio Queue | Hardware PIO I2S + DMA | Hardware ESP-IDF I2S + DMA |
-| Threading Model | Main loop + timer | Core 0 (UI) / Core 1 (Audio) | FreeRTOS Dual-Core Tasks |
-| Flash Binary | build/kopuz_sim | build_rp2040/kopuz_rp2040.uf2 | ESP-IDF .bin |
+| VIN / VCC | Power | 3.3V / 5V | Power for DAC module |
+| GND | Ground | GND | Common ground |
+| BCK / SCK | Bit Clock | P0.28 | I2S Bit Clock output |
+| LRCK / WS | Word Select | P0.29 | I2S LR Clock (44.1 kHz) |
+| DIN / SDOUT| Serial Audio Data | P0.30 | Serialized PCM audio data |
+
+### 3.2 MicroSD Card Reader (High-Speed SPIM3)
+Connected to dedicated SPIM3 (up to 32 MHz with EasyDMA):
+
+| MicroSD Pin | Signal Name | nRF52840 Pin | Notes |
+|:---|:---|:---|:---|
+| VCC | Power | 3.3V | MicroSD power |
+| GND | Ground | GND | Common ground |
+| CS | Chip Select | P0.22 | Active-low Card Select |
+| SCK | SPI Clock | P0.23 | SPIM3 Clock (up to 32 MHz) |
+| MOSI | Master Out Slave In | P0.24 | Data to MicroSD |
+| MISO | Master In Slave Out | P0.25 | Data from MicroSD |
+
+### 3.3 Multi-Display Connections
+
+#### Option A: 0.96" / 1.3" I2C Monochrome OLED (SSD1306 / SH1106)
+- Compile flag: `-DDISPLAY_TYPE=OLED_I2C`
+
+| OLED Pin | Signal Name | nRF52840 Pin | Notes |
+|:---|:---|:---|:---|
+| VCC | Power | 3.3V | Display power |
+| GND | Ground | GND | Ground |
+| SCL | I2C Clock | P0.27 | TWIM SCL (400 kHz Fast Mode) |
+| SDA | I2C Data | P0.26 | TWIM SDA |
+
+#### Option B: 2.8" SPI Color LCD (ST7789 / ILI9341)
+- Compile flag: `-DDISPLAY_TYPE=COLOR_LCD`
+
+| LCD Pin | Signal Name | nRF52840 Pin | Notes |
+|:---|:---|:---|:---|
+| CS | Chip Select | P0.17 | SPI CS |
+| DC | Data / Command | P0.16 | Low = Cmd, High = Data |
+| SCK | SPI Clock | P0.15 | SPIM SCK |
+| MOSI | SPI Data | P0.13 | SPIM MOSI |
+| RST | Hardware Reset | P0.14 | Reset pulse |
+| BL | Backlight PWM | P0.12 | PWM brightness |
+
+#### Option C: 2.13" / 2.9" SPI E-Ink EPD (SSD1680 / UC8151)
+- Compile flag: `-DDISPLAY_TYPE=EINK_EPD`
+
+| EPD Pin | Signal Name | nRF52840 Pin | Notes |
+|:---|:---|:---|:---|
+| CS | Chip Select | P0.17 | SPI CS |
+| DC | Data / Command | P0.16 | Data/Command |
+| SCK | SPI Clock | P0.15 | SPI Clock |
+| MOSI | SPI Data | P0.13 | SPI Data |
+| BUSY | Busy Status | P0.11 | High when refreshing |
+| RST | Hardware Reset | P0.14 | Reset pulse |
+
+### 3.4 Navigation Pushbuttons
+All pushbuttons connect between the GPIO pin and GND (internal pull-ups enabled):
+- Select / Play-Pause: P0.02 (Hold >= 500 ms for Back)
+- Next / Down: P0.03
+- Prev / Up: P0.04
+- Vol+ (Optional): P0.05
+- Vol- (Optional): P0.20
+
+### 3.5 Battery Voltage Measurement
+- Connected to internal SAADC Channel 0 (`P0.02 / AIN0`) with 1/6 gain and 0.6V reference.
+
+---
+
+## 4. Nordic Semiconductor nRF54L15
+
+The next-generation ultra-low-power ARM Cortex-M33 SoC with hardware Serial Audio Interface (SAI) and native Bluetooth 5.4 LE Audio.
+
+| Interface | Peripheral Pin | Function | Notes |
+|:---|:---|:---|:---|
+| **I2S DAC** | P1.04 | I2S SCK / BCLK | Bit clock to DAC |
+| **I2S DAC** | P1.05 | I2S LRCK / WS | Word select (44.1/48 kHz) |
+| **I2S DAC** | P1.06 | I2S SDOUT | Serial audio data |
+| **MicroSD** | P2.00..03 | High-speed SPIM | MicroSD SCK, MOSI, MISO, CS |
+| **I2C OLED** | P0.04, P0.05 | TWIM SCL / SDA | SSD1306 display bus |
+| **SPI LCD** | P0.08..11 | SPIM / GPIO | ST7789 / ILI9341 display bus |
+| **Buttons** | P0.14..18 | GPIOTE | Low-power wakeup buttons |
+| **Battery** | P0.01 / AIN0 | SAADC | Battery voltage sensing |
+| **LE Audio** | Integrated 2.4 GHz | [EXPERIMENTAL] Auracast | Direct LC3 broadcast stream |
+
+---
+
+## 5. Summary Target Matrix
+
+| Feature | Desktop Simulator | RP2040 / RP2350 | LilyGO T-Display S3 | Nordic nRF52840 | Nordic nRF54L15 |
+|:---|:---|:---|:---|:---|:---|
+| CPU Core | Host x86_64 / ARM64 | Dual Cortex-M0+ / M33 | Dual Xtensa LX7 @ 240MHz | Cortex-M4F @ 64MHz | Cortex-M33 @ 128MHz |
+| Default Display | SDL2 Window | 320x240 ILI9341 SPI | 320x170 ST7789 Parallel | Multi-Profile (OLED/LCD/EPD)| Multi-Profile (OLED/LCD/EPD)|
+| Audio Hardware | SDL2 Audio Queue | PIO I2S + DMA | Hardware I2S + DMA | NRF_I2S + EasyDMA | SAI / I2S + EasyDMA |
+| Wireless Audio | N/A | N/A | BLE Audio (LC3) | [EXP] 2.4G Custom BLE | [EXP] BT 5.4 Auracast |
+| Sleep Current | N/A | ~1.5 mA | ~15 uA | < 1.5 uA (System OFF) | < 0.8 uA (System OFF) |
+

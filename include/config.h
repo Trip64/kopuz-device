@@ -8,16 +8,26 @@
 extern "C" {
 #endif
 
-#if defined(PICO_BOARD) || defined(RASPBERRYPI_PICO) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(TARGET_QVGA)
-    #define LCD_WIDTH       320
-    #define LCD_HEIGHT      240
-    #define COLOR_DISPLAY   1
-    #define ART_BOX_PX      80
-#elif defined(TARGET_EPD)
+#if defined(TARGET_OLED_I2C) || defined(DISPLAY_OLED_I2C) || defined(DISPLAY_SSD1306)
+    #define LCD_WIDTH       128
+    #define LCD_HEIGHT      64
+    #define COLOR_DISPLAY   0
+    #define ART_BOX_PX      0
+#elif defined(TARGET_EPD) || defined(DISPLAY_EINK_EPD)
     #define LCD_WIDTH       250
     #define LCD_HEIGHT      122
     #define COLOR_DISPLAY   0
     #define ART_BOX_PX      48
+#elif defined(TARGET_SHARP_MIP) || defined(DISPLAY_SHARP_MIP)
+    #define LCD_WIDTH       400
+    #define LCD_HEIGHT      240
+    #define COLOR_DISPLAY   0
+    #define ART_BOX_PX      48
+#elif defined(PICO_BOARD) || defined(RASPBERRYPI_PICO) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(TARGET_QVGA)
+    #define LCD_WIDTH       320
+    #define LCD_HEIGHT      240
+    #define COLOR_DISPLAY   1
+    #define ART_BOX_PX      80
 #else
     #define LCD_WIDTH       320
     #define LCD_HEIGHT      170

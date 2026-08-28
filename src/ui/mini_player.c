@@ -351,11 +351,47 @@ static void render_now_playing(framebuffer_t *fb, const app_state_t *app) {
 
     const track_t *cur = app_get_current_track(app);
     if (!cur) {
-        fb_draw_text(fb, 8, UI_BODY_TOP + 12, "No track selected.", &font_8x13_bold, false);
-        fb_draw_text(fb, 8, UI_BODY_TOP + 28, "Browse Library to start playback.", &font_6x10, false);
+        fb_draw_text(fb, 4, UI_BODY_TOP + 4, "No track playing", &font_6x10, false);
         return;
     }
 
+#if (LCD_WIDTH <= 128)
+    // Compact 128x64 OLED Layout
+    fb_draw_text_trunc(fb, 2, 13, cur->title, 20, &font_6x10, false);
+    fb_draw_text_trunc(fb, 2, 24, cur->artist, 20, &font_6x10, false);
+
+    // 8-Band Equalizer & Format Tag
+    draw_spectrum(fb, 2, 36, 12, app);
+
+    char tags[32] = {0};
+    if (app->shuffle) strcat(tags, "S ");
+    if (app->repeat != REPEAT_OFF) strcat(tags, "R ");
+    if (app->format_badge[0] != '\0') {
+        strcat(tags, app->format_badge);
+    }
+    fb_draw_text_trunc(fb, 60, 36, tags, 11, &font_6x10, false);
+
+    // Mini Progress Bar & Time
+    int16_t by = fb->height - 13;
+    float frac = 0.0f;
+    if (cur->duration_secs > 0) {
+        frac = (float)(app->position_ms / 1000) / (float)cur->duration_secs;
+    }
+    draw_progress_bar(fb, 2, by, fb->width - 4, frac);
+
+    char tline[32];
+    char pos_str[16], dur_str[16];
+    format_mmss(app->position_ms / 1000, pos_str, sizeof(pos_str));
+    format_mmss(cur->duration_secs, dur_str, sizeof(dur_str));
+    snprintf(tline, sizeof(tline), "%s %s/%s", state_glyph(app->state), pos_str, dur_str);
+    fb_draw_text(fb, 2, by + 5, tline, &font_6x10, false);
+
+    char vol_str[16];
+    snprintf(vol_str, sizeof(vol_str), "v%u", app->volume);
+    int16_t vx = fb->width - (int16_t)strlen(vol_str) * font_6x10.width - 2;
+    fb_draw_text(fb, vx, by + 5, vol_str, &font_6x10, false);
+#else
+    // Wide / Full-Size Color & E-Ink Layout
     int16_t ax = UI_ART_X;
     int16_t ay = UI_ART_Y;
     int16_t art_size = ART_BOX_PX;
@@ -437,6 +473,7 @@ static void render_now_playing(framebuffer_t *fb, const app_state_t *app) {
     snprintf(vol_str, sizeof(vol_str), "vol %u", app->volume);
     int16_t vx = fb->width - (int16_t)strlen(vol_str) * font_6x10.width - 2;
     fb_draw_text(fb, vx, by + 7, vol_str, &font_6x10, false);
+#endif
 }
 
 static void render_mini_footer(framebuffer_t *fb, const app_state_t *app) {

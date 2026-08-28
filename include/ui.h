@@ -8,10 +8,23 @@ extern "C" {
 #endif
 
 // Layout bounds
-#define UI_HEADER_Y         14
-#define UI_BODY_TOP         16
-#define UI_ROW_HEIGHT       13
-#define UI_FOOTER_HEIGHT    24
+#if (LCD_HEIGHT <= 64)
+    #define UI_HEADER_Y         9
+    #define UI_BODY_TOP         11
+    #define UI_ROW_HEIGHT       11
+    #define UI_FOOTER_HEIGHT    12
+#elif (LCD_HEIGHT <= 128)
+    #define UI_HEADER_Y         12
+    #define UI_BODY_TOP         14
+    #define UI_ROW_HEIGHT       12
+    #define UI_FOOTER_HEIGHT    18
+#else
+    #define UI_HEADER_Y         14
+    #define UI_BODY_TOP         16
+    #define UI_ROW_HEIGHT       13
+    #define UI_FOOTER_HEIGHT    24
+#endif
+
 #define UI_FOOTER_Y         (LCD_HEIGHT - UI_FOOTER_HEIGHT)
 #define UI_VISIBLE_ROWS     ((UI_FOOTER_Y - UI_BODY_TOP) / UI_ROW_HEIGHT)
 
