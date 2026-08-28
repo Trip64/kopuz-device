@@ -67,6 +67,10 @@ static uint32_t s_sample_rate = 44100;
 static uint8_t s_channels = 2;
 
 static inline uint8_t spi2_transfer(uint8_t byte) {
+    if (SPI2->SR & SPI_SR_OVR) {
+        (void)*(volatile uint8_t *)&SPI2->DR;
+        (void)SPI2->SR;
+    }
     while (!(SPI2->SR & SPI_SR_TXE));
     *(volatile uint8_t *)&SPI2->DR = byte;
     while (!(SPI2->SR & SPI_SR_RXNE));
@@ -257,16 +261,16 @@ int hal_audio_init(uint32_t sample_rate, uint8_t channels) {
     vs1053_spi_slow();
     vs1053_wait_dreq();
 
-    // 6. Set default mode, clock, bass registers (matching mikroC example)
-    vs1053_sci_write(SCI_MODE, 0x0800);   // SM_SDINEW (0x0800)
-    vs1053_sci_write(SCI_BASS, 0x7A00);   // Bass/Treble boost
-    vs1053_sci_write(SCI_CLOCKF, 0xC000); // 3.5x PLL for 12.288 MHz crystal
-    HAL_Delay(5);
+    // 6. Set default mode (SM_SDINEW 0x0800, EarSpeaker disabled), flat Hi-Fi response (SCI_BASS=0), 3.5x PLL (SCI_CLOCKF=0x8800)
+    vs1053_sci_write(SCI_MODE, 0x0800);   // SM_SDINEW (0x0800), EarSpeaker 3D reverb OFF
+    vs1053_sci_write(SCI_BASS, 0x0000);   // Flat studio response (no treble/bass distortion)
+    vs1053_sci_write(SCI_CLOCKF, 0x8800); // 3.5x PLL (43 MHz) for clean 44.1/48kHz playback
+    HAL_Delay(10);
 
     // 7. Switch SPI to fast speed for audio data transfer
     vs1053_spi_fast();
 
-    // 8. Set volume (0 = max volume: 0x0000, 254 = silence)
+    // 8. Set volume (clean analog headroom, no clipping)
     hal_audio_set_volume(s_volume);
 
     s_codec_ready = true;
@@ -321,12 +325,14 @@ void hal_audio_set_volume(uint8_t volume) {
     s_volume = (volume > 100) ? 100 : volume;
     if (!s_codec_ready) return;
 
-    // 0 = max volume (0x0000), 254 = silence
+    // VS1053: 0x00 is 0dB, 0xFE is mute
+    // Map 100% -> 0x0404 (-2dB headroom to prevent DAC saturation)
+    // Map 0%   -> 0xFEFE
     uint8_t atten;
     if (s_volume == 0) {
         atten = 0xFE;
     } else {
-        atten = (uint8_t)((100 - s_volume) * 80 / 100);
+        atten = (uint8_t)(4 + (100 - s_volume) * 76 / 100);
     }
     uint16_t vol_reg = ((uint16_t)atten << 8) | atten;
     vs1053_sci_write(SCI_VOL, vol_reg);

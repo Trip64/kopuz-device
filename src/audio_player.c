@@ -168,9 +168,9 @@ void audio_player_process(void) {
     }
 
     if (s_is_hw_stream && s_raw_stream_file) {
-        // While codec internal FIFO has room, push 32-byte chunks
+        // While codec internal FIFO has room, push 32-byte chunks (up to 4KB burst)
         int loops = 0;
-        while (hal_audio_needs_data() && loops++ < 64) {
+        while (hal_audio_needs_data() && loops++ < 128) {
             if (s_hw_buf_pos >= s_hw_buf_len) {
                 s_hw_buf_len = hal_fread(s_hw_buf, 1, sizeof(s_hw_buf), s_raw_stream_file);
                 s_hw_buf_pos = 0;

@@ -141,13 +141,17 @@ int main(void) {
         }
 
         uint32_t now = HAL_GetTick();
-        if (now - last_tick >= 50) {
+        if (now - last_tick >= 200) {
             last_tick = now;
 
             if (s_app.state == PLAYBACK_PLAYING) {
-                if (s_app.position_ms >= (uint32_t)s_app.queue[s_app.current_index].duration_secs * 1000) {
+                if (s_app.queue[s_app.current_index].duration_secs > 0 &&
+                    s_app.position_ms >= (uint32_t)s_app.queue[s_app.current_index].duration_secs * 1000) {
                     s_app.position_ms = 0;
-                    app_on_button(&s_app, BTN_NEXT);
+                    app_command_t cmd = app_on_track_end(&s_app);
+                    if (cmd != CMD_NONE) {
+                        audio_player_send_command(cmd);
+                    }
                 }
                 audio_player_tick_vu();
                 s_app.dirty = true;
@@ -155,6 +159,9 @@ int main(void) {
         }
 
         if (s_app.dirty) {
+            if (s_app.state == PLAYBACK_PLAYING) {
+                audio_player_process();
+            }
             ui_render(&fb, &s_app);
             hal_display_flush(fb.buffer);
             if (s_app.screen == SCREEN_NOW_PLAYING && s_app.art_valid && s_app.art_rgb565) {
@@ -162,6 +169,9 @@ int main(void) {
             }
             hal_display_present();
             s_app.dirty = false;
+            if (s_app.state == PLAYBACK_PLAYING) {
+                audio_player_process();
+            }
         }
 
         if (s_app.state != PLAYBACK_PLAYING) {
