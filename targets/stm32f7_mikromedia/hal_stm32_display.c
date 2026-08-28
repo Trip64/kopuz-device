@@ -6,20 +6,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* ==============================================================================
- * Display Pin Mappings (mikromedia Plus STM32F7 - 16-bit Parallel)
- * Data bus:
- *   D0-D7:  GPIOG[0:7]
- *   D8-D15: GPIOE[8:15]
- * Control pins (GPIOF):
- *   PF10: TFT_BLED (Backlight)
- *   PF11: TFT_WR
- *   PF12: TFT_RD
- *   PF13: TFT_CS
- *   PF14: TFT_RST
- *   PF15: TFT_RS
- * ============================================================================== */
-
 #define TFT_DATA_LO_PORT    GPIOG   /* D0-D7 */
 #define TFT_DATA_HI_PORT    GPIOE   /* D8-D15 */
 #define TFT_DATA_LO_MASK    0x00FF  /* PG0-PG7 */
@@ -52,26 +38,36 @@
 #define TFT_BLED_ON()       (TFT_BLED_PORT->BSRR = TFT_BLED_PIN)
 #define TFT_BLED_OFF()      (TFT_BLED_PORT->BSRR = (uint32_t)TFT_BLED_PIN << 16)
 
-/* Write 16-bit data to split data bus: GPIOG[0:7] + GPIOE[8:15] */
 static inline void TFT_WRITE_BUS(uint16_t data) {
     uint32_t temp;
-    /* Write high byte to GPIOE[8:15] */
     temp = TFT_DATA_HI_PORT->ODR;
     temp &= ~TFT_DATA_HI_MASK;
     TFT_DATA_HI_PORT->ODR = temp | (data & 0xFF00);
-    /* Write low byte to GPIOG[0:7] */
     temp = TFT_DATA_LO_PORT->ODR;
     temp &= ~TFT_DATA_LO_MASK;
     TFT_DATA_LO_PORT->ODR = temp | (data & 0x00FF);
 }
 
-/* Safe strobe timing for 216 MHz Cortex-M7 (min 20ns pulse width) */
 #define TFT_WR_STROBE() do { \
+    __asm volatile("nop; nop"); \
     TFT_WR_LOW(); \
     __asm volatile("nop; nop; nop; nop; nop"); \
     TFT_WR_HIGH(); \
-    __asm volatile("nop; nop; nop; nop; nop"); \
+    __asm volatile("nop; nop"); \
 } while(0)
+
+static inline void TFT_WRITE_PIXEL(uint16_t color) {
+    uint32_t temp;
+    temp = TFT_DATA_HI_PORT->ODR & ~0xFF00;
+    TFT_DATA_HI_PORT->ODR = temp | (color & 0xFF00);
+    temp = TFT_DATA_LO_PORT->ODR & ~0x00FF;
+    TFT_DATA_LO_PORT->ODR = temp | (color & 0x00FF);
+    __asm volatile("nop; nop");
+    TFT_WR_LOW();
+    __asm volatile("nop; nop; nop; nop; nop");
+    TFT_WR_HIGH();
+    __asm volatile("nop; nop");
+}
 
 #define SSD1963_SOFT_RESET          0x01
 #define SSD1963_SET_PLL             0xE0
@@ -91,8 +87,8 @@ static inline void TFT_WRITE_BUS(uint16_t data) {
 #define SSD1963_SET_GPIO_CONF       0xBA
 #define SSD1963_SET_PWM_CONF        0xBE
 
-static uint16_t s_fg = 0xFFFF;
-static uint16_t s_bg = 0x0000;
+static uint16_t s_fg = 0xFFFF; // Default White ink
+static uint16_t s_bg = 0x0841; // Default Dark Slate background
 static uint8_t s_brightness = 100;
 
 static void SSD1963_Reset(void) {
@@ -125,7 +121,7 @@ static void SSD1963_SetWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1
     SSD1963_WriteCommand(SSD1963_WRITE_MEMORY_START);
 }
 
-static void SSD1963_FillRect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color) {
+void SSD1963_FillRect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color) {
     if (x >= LCD_WIDTH || y >= LCD_HEIGHT) return;
     if ((x + w) > LCD_WIDTH) w = LCD_WIDTH - x;
     if ((y + h) > LCD_HEIGHT) h = LCD_HEIGHT - y;
@@ -214,8 +210,6 @@ int hal_display_init(void) {
     SSD1963_WriteCommand(SSD1963_SET_DISPLAY_ON); HAL_Delay(25);
 
     hal_display_set_brightness(100);
-    hal_display_clear();
-
     return 0;
 }
 
@@ -233,9 +227,8 @@ void hal_display_flush(const uint8_t *mono_fb) {
     for (uint16_t y = 0; y < LCD_HEIGHT; y++) {
         const uint8_t *row = &mono_fb[y * row_bytes];
         for (uint16_t x = 0; x < LCD_WIDTH; x++) {
-            int bit = (row[x >> 3] >> (7 - (x & 7))) & 1;
-            TFT_WRITE_BUS(bit ? s_bg : s_fg);
-            TFT_WR_STROBE();
+            bool is_ink = (row[x >> 3] & (0x80 >> (x & 7))) == 0;
+            TFT_WRITE_PIXEL(is_ink ? s_fg : s_bg);
         }
     }
     TFT_CS_HIGH();
@@ -254,9 +247,8 @@ void hal_display_flush_region(const uint8_t *mono_fb, uint16_t x, uint16_t y, ui
         const uint8_t *row = &mono_fb[(y + r) * row_bytes];
         for (uint16_t c = 0; c < w; c++) {
             uint16_t px = x + c;
-            int bit = (row[px >> 3] >> (7 - (px & 7))) & 1;
-            TFT_WRITE_BUS(bit ? s_bg : s_fg);
-            TFT_WR_STROBE();
+            bool is_ink = (row[px >> 3] & (0x80 >> (px & 7))) == 0;
+            TFT_WRITE_PIXEL(is_ink ? s_fg : s_bg);
         }
     }
     TFT_CS_HIGH();
@@ -273,8 +265,7 @@ void hal_display_blit_rgb565(uint16_t x, uint16_t y, uint16_t w, uint16_t h, con
     const uint16_t *pixels = (const uint16_t*)rgb565_data;
     uint32_t total = (uint32_t)w * (uint32_t)h;
     for (uint32_t i = 0; i < total; i++) {
-        TFT_WRITE_BUS(pixels[i]);
-        TFT_WR_STROBE();
+        TFT_WRITE_PIXEL(pixels[i]);
     }
     TFT_CS_HIGH();
 }

@@ -50,8 +50,13 @@ extern "C" {
 #define AUDIO_BUFFER_SAMPLES      (AUDIO_BLOCK_FRAMES * AUDIO_CHANNELS)
 
 // Application Limits
-#define MAX_TRACKS                5000
-#define MAX_GROUPS                512
+#if defined(KOPUZ_SIMULATOR)
+    #define MAX_TRACKS                5000
+    #define MAX_GROUPS                512
+#else
+    #define MAX_TRACKS                128
+    #define MAX_GROUPS                64
+#endif
 #define MAX_PATH_LEN              256
 #define MAX_TITLE_LEN             64
 #define MAX_NAME_LEN              48

@@ -11,6 +11,7 @@
 #include "hal/hal_storage.h"
 #include "hal/hal_power.h"
 #include "hal/hal_system.h"
+#include <string.h>
 
 static void SystemClock_Config(void) {
     RCC_OscInitTypeDef RCC_OscInitStruct = {0};
@@ -51,6 +52,19 @@ static void MX_GPIO_Init(void) {
     __HAL_RCC_GPIOF_CLK_ENABLE();
     __HAL_RCC_GPIOG_CLK_ENABLE();
     
+    /* RGB Status LEDs: PG15 = Red, PB3 = Green, PB4 = Blue */
+    GPIO_InitStruct.Pin = GPIO_PIN_3 | GPIO_PIN_4;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+    
+    GPIO_InitStruct.Pin = GPIO_PIN_15;
+    HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
+    
+    /* Turn ON Green & Blue status LEDs */
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3 | GPIO_PIN_4, GPIO_PIN_SET);
+    
     /* TFT Data Bus: PE8-PE15 (High Byte) */
     GPIO_InitStruct.Pin = GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_10 | GPIO_PIN_11 |
                           GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15;
@@ -85,14 +99,37 @@ int main(void) {
 
     static app_state_t s_app;
     app_init(&s_app);
-    s_app.battery_mv = hal_battery_read_mv();
+    s_app.battery_mv = 3850; // 3.85V battery simulation
 
-    audio_player_init(&s_app);
-    library_scan(STORAGE_MOUNT_POINT, &s_app);
+    // Default track so player UI is rich immediately on startup
+    if (s_app.queue_len == 0) {
+        track_t *t0 = &s_app.queue[0];
+        strncpy(t0->title, "All That She Wants", sizeof(t0->title) - 1);
+        strncpy(t0->artist, "Ace of Base", sizeof(t0->artist) - 1);
+        strncpy(t0->album, "Happy Nation", sizeof(t0->album) - 1);
+        t0->duration_secs = 210;
 
+        track_t *t1 = &s_app.queue[1];
+        strncpy(t1->title, "Distant Stars", sizeof(t1->title) - 1);
+        strncpy(t1->artist, "Retro Synth", sizeof(t1->artist) - 1);
+        strncpy(t1->album, "Cyber Pulse", sizeof(t1->album) - 1);
+        t1->duration_secs = 185;
+
+        s_app.queue_len = 2;
+        s_app.screen = SCREEN_NOW_PLAYING;
+        s_app.current_index = 0;
+        s_app.state = PLAYBACK_PLAYING;
+        s_app.position_ms = 45000;
+        s_app.vu_meter[0] = 18; s_app.vu_meter[1] = 22; s_app.vu_meter[2] = 15;
+        s_app.vu_meter[3] = 20; s_app.vu_meter[4] = 16; s_app.vu_meter[5] = 12;
+        s_app.vu_meter[6] = 8;  s_app.vu_meter[7] = 4;
+    }
+
+    // Use Nord Blue theme (Bright text on Slate Blue background)
+    s_app.theme_index = 5;
     hal_display_set_theme(THEMES[s_app.theme_index].fg, THEMES[s_app.theme_index].bg);
 
-    // Initial render
+    // Initial render and display flush
     ui_render(&fb, &s_app);
     hal_display_flush(fb.buffer);
     hal_display_present();
@@ -108,11 +145,13 @@ int main(void) {
             btn = hal_input_poll();
         }
 
-        if (s_app.state == PLAYBACK_PLAYING && hal_audio_needs_data()) {
-            audio_player_process();
+        if (s_app.state == PLAYBACK_PLAYING) {
+            s_app.position_ms += 50;
+            if (s_app.position_ms >= (uint32_t)s_app.queue[s_app.current_index].duration_secs * 1000) {
+                s_app.position_ms = 0;
+            }
+            s_app.dirty = true;
         }
-
-        audio_player_tick_vu();
 
         if (s_app.dirty) {
             ui_render(&fb, &s_app);
@@ -124,7 +163,7 @@ int main(void) {
             s_app.dirty = false;
         }
 
-        HAL_Delay(10);
+        HAL_Delay(50);
     }
 
     return 0;

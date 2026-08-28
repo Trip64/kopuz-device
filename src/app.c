@@ -33,14 +33,17 @@ static void shuffle_keep_first(uint16_t *order, uint16_t n, uint16_t chosen_pos)
     }
 }
 
+static track_t s_fallback_queue[MAX_TRACKS];
+static uint8_t s_fallback_art[ART_BOX_PX * ART_BOX_PX * 2];
+
 void app_init(app_state_t *app) {
     memset(app, 0, sizeof(app_state_t));
 
     app->queue_cap = MAX_TRACKS;
     app->queue = (track_t*)calloc(app->queue_cap, sizeof(track_t));
     if (!app->queue) {
-        app_trigger_bsod(app, "ERR_OUT_OF_MEMORY", "Track queue alloc failed");
-        return;
+        app->queue = s_fallback_queue;
+        memset(s_fallback_queue, 0, sizeof(s_fallback_queue));
     }
 
     app->volume = 70;
@@ -58,8 +61,7 @@ void app_init(app_state_t *app) {
     app->art_size = ART_BOX_PX;
     app->art_rgb565 = (uint8_t*)malloc((size_t)ART_BOX_PX * ART_BOX_PX * 2);
     if (!app->art_rgb565) {
-        app_trigger_bsod(app, "ERR_OUT_OF_MEMORY", "Art buffer alloc failed");
-        return;
+        app->art_rgb565 = s_fallback_art;
     }
     app->art_valid = false;
 }

@@ -4,8 +4,8 @@ ENTRY(Reset_Handler)
 
 _estack = ORIGIN(RAM) + LENGTH(RAM); /* end of "RAM" Ram type memory */
 
-_Min_Heap_Size = 0x2000;  /* required amount of heap  */
-_Min_Stack_Size = 0x2000; /* required amount of stack */
+_Min_Heap_Size = 0x8000;  /* 32KB heap */
+_Min_Stack_Size = 0x2000; /* 8KB stack */
 
 MEMORY
 {
@@ -125,11 +125,4 @@ SECTIONS
     . = . + _Min_Stack_Size;
     . = ALIGN(8);
   } >RAM
-
-  /DISCARD/ :
-  {
-    libc.a ( * )
-    libm.a ( * )
-    libgcc.a ( * )
-  }
 }
