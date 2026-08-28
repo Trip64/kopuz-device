@@ -115,27 +115,29 @@ btn_event_t hal_input_poll(void) {
         }
     }
 
-    // 2. Check STMPE610 Touch using exact Helios routines
+    // 2. Check STMPE610 Touch with pressure threshold to reject electrical noise
     if (s_touch_found && STMPE610_Touched()) {
-        uint16_t x, y;
-        uint8_t z;
-        if (STMPE610_ReadXYZ(&x, &y, &z)) {
+        uint16_t x = 0, y = 0;
+        uint8_t z = 0;
+        if (STMPE610_ReadXYZ(&x, &y, &z) && z > 15 && x > 200 && y > 200) {
             uint32_t now = HAL_GetTick();
-            if (now - s_last_touch_time > 300) {
+            if (now - s_last_touch_time > 250) {
                 s_last_touch_time = now;
 
                 // Helios calibrated mapping
-                int px = (x > 250) ? ((x - 250) * 480 / 3550) : 0;
-                int py = (y > 250) ? ((y - 250) * 272 / 3550) : 0;
+                int px = (x - 200) * 480 / 3600;
+                int py = (y - 200) * 272 / 3600;
+                if (px < 0) px = 0; if (px > 479) px = 479;
+                if (py < 0) py = 0; if (py > 271) py = 271;
 
-                // Visual feedback: toggle blue LED on touch
+                // Visual feedback: toggle blue LED on valid touch
                 HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_4);
 
-                if (py < 45) {
+                if (py < 50) {
                     return BTN_BACK; // Top tab/header -> Menu / Back
-                } else if (px < 160) {
+                } else if (px < 140) {
                     return BTN_PREV; // Left region -> Previous track / Up
-                } else if (px > 320) {
+                } else if (px > 340) {
                     return BTN_NEXT; // Right region -> Next track / Down
                 } else {
                     return BTN_PLAY_PAUSE; // Center region -> Play/Pause
