@@ -30,6 +30,12 @@ int main(void) {
 
     hal_display_set_theme(THEMES[s_app.theme_index].fg, THEMES[s_app.theme_index].bg);
 
+    // Initial render and flush
+    ui_render(&fb, &s_app);
+    hal_display_flush(fb.buffer);
+    hal_display_present();
+    s_app.dirty = false;
+
     while (1) {
         btn_event_t btn = hal_input_poll();
         while (btn != BTN_NONE) {
