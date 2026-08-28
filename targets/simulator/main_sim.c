@@ -207,9 +207,11 @@ int main(int argc, char *argv[]) {
         app_check_memory_safety(&app);
 
         uint32_t now = hal_get_time_ms();
-        if (app.state == PLAYBACK_PLAYING && (now - last_progress_time >= 500)) {
+        if (app.state == PLAYBACK_PLAYING) {
             app.dirty = true;
-            last_progress_time = now;
+            if (now - last_progress_time >= 500) {
+                last_progress_time = now;
+            }
         }
 
         if (app.dirty) {

@@ -72,11 +72,20 @@ static void load_current_track(void) {
         free(cover_bytes);
     }
 
+    const char *fmt_str = "WAV";
+    if (strstr(track->path, ".flac")) fmt_str = "FLAC";
+    else if (strstr(track->path, ".mp3")) fmt_str = "MP3";
+    uint32_t khz = (s_decoder->info.sample_rate + 500) / 1000;
+    uint8_t bps = s_decoder->info.bits_per_sample ? s_decoder->info.bits_per_sample : 16;
+    snprintf(s_app->format_badge, sizeof(s_app->format_badge), "%s %ub/%uk",
+             fmt_str, (unsigned)bps, (unsigned)khz);
+
     s_app->position_ms = 0;
     s_app->dirty = true;
-    printf("Playing %s (%u Hz, %u ch, %u sec)\n",
+    printf("Playing %s (%u Hz, %u ch, %u sec) [%s]\n",
            track->path, (unsigned)s_decoder->info.sample_rate,
-           (unsigned)s_decoder->info.channels, (unsigned)s_decoder->info.duration_secs);
+           (unsigned)s_decoder->info.channels, (unsigned)s_decoder->info.duration_secs,
+           s_app->format_badge);
 }
 
 int audio_player_init(app_state_t *app) {
@@ -134,6 +143,27 @@ void audio_player_process(void) {
         uint32_t sr = s_decoder->info.sample_rate ? s_decoder->info.sample_rate : 44100;
         size_t frames = (size_t)n / ch;
         s_app->position_ms += (uint32_t)(((uint64_t)frames * 1000) / sr);
+
+        int chunk = n / 8;
+        if (chunk > 0) {
+            for (int b = 0; b < 8; b++) {
+                int start = b * chunk;
+                int end = start + chunk;
+                uint32_t peak = 0;
+                for (int i = start; i < end; i += 4) {
+                    int32_t smp = s_pcm_buf[i] >> 16;
+                    if (smp < 0) smp = -smp;
+                    if ((uint32_t)smp > peak) peak = (uint32_t)smp;
+                }
+                uint8_t lvl = (uint8_t)((peak * 12) / 32768);
+                if (lvl > 12) lvl = 12;
+                if (lvl >= s_app->vu_meter[b]) {
+                    s_app->vu_meter[b] = lvl;
+                } else if (s_app->vu_meter[b] > 0) {
+                    s_app->vu_meter[b]--;
+                }
+            }
+        }
     } else if (n == 0) {
         app_command_t cmd = app_on_track_end(s_app);
         if (cmd == CMD_LOAD_CURRENT) {

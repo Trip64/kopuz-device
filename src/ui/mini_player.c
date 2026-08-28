@@ -205,6 +205,32 @@ static void draw_progress_bar(framebuffer_t *fb, int16_t x, int16_t y, int16_t w
     }
 }
 
+static void draw_spectrum(framebuffer_t *fb, int16_t x, int16_t y, const app_state_t *app) {
+    if (!fb || !app) return;
+    int16_t bar_w = 3;
+    int16_t gap = 1;
+    int16_t max_h = 12;
+
+    for (int b = 0; b < 8; b++) {
+        int16_t bx = x + b * (bar_w + gap);
+        uint8_t lvl = app->vu_meter[b];
+        if (lvl > max_h) lvl = max_h;
+        if (lvl > 0) {
+            fb_fill_rect(fb, bx, y + (max_h - lvl), bar_w, lvl, true);
+        } else {
+            fb_set_pixel(fb, bx + 1, y + max_h - 1, true);
+        }
+    }
+}
+
+static void draw_slider(framebuffer_t *fb, int16_t x, int16_t y, int16_t w, int16_t h, uint8_t pct, bool inv) {
+    fb_draw_rect(fb, x, y, w, h, !inv);
+    int16_t fill = (int16_t)(((w - 2) * pct) / 100);
+    if (fill > 0) {
+        fb_fill_rect(fb, x + 1, y + 1, fill, h - 2, !inv);
+    }
+}
+
 static void render_list(framebuffer_t *fb, const app_state_t *app) {
     draw_topbar(fb, app);
 
@@ -212,10 +238,10 @@ static void render_list(framebuffer_t *fb, const app_state_t *app) {
     uint16_t sel = app_get_current_selection(app);
 
     if (n == 0) {
-        const char *empty_msg = "No tracks. Insert SD.";
-        if (app->screen == SCREEN_ALBUMS) empty_msg = "No albums.";
-        else if (app->screen == SCREEN_ARTISTS) empty_msg = "No artists.";
-        fb_draw_text(fb, 4, UI_BODY_TOP + 4, empty_msg, &font_6x10, false);
+        const char *empty_msg = "No tracks found on /sdcard.";
+        if (app->screen == SCREEN_ALBUMS) empty_msg = "No albums found.";
+        else if (app->screen == SCREEN_ARTISTS) empty_msg = "No artists found.";
+        fb_draw_text(fb, 8, UI_BODY_TOP + 8, empty_msg, &font_6x10, false);
     } else {
         uint16_t visible = UI_VISIBLE_ROWS;
         uint16_t max_start = (n > visible) ? (n - visible) : 0;
@@ -230,23 +256,30 @@ static void render_list(framebuffer_t *fb, const app_state_t *app) {
             bool is_selected = (idx == sel);
 
             if (is_selected) {
-                fb_fill_rect(fb, 0, y - 1, fb->width, UI_ROW_HEIGHT, true);
+                fb_fill_rect(fb, 2, y - 1, fb->width - 4, UI_ROW_HEIGHT, true);
             }
 
             char line[96] = {0};
             switch (app->screen) {
-                case SCREEN_MENU:
-                    snprintf(line, sizeof(line), "%s", MENU_ITEMS[idx]);
+                case SCREEN_MENU: {
+                    const char *icon = " ";
+                    if (idx == 0) icon = ">";
+                    else if (idx == 1) icon = "#";
+                    else if (idx == 2) icon = "@";
+                    else if (idx == 3) icon = "~";
+                    else if (idx == 4) icon = "*";
+                    snprintf(line, sizeof(line), "%s %s", icon, MENU_ITEMS[idx]);
                     break;
+                }
                 case SCREEN_SETTINGS:
-                    if (idx == 0) snprintf(line, sizeof(line), "Shuffle: %s", app->shuffle ? "on" : "off");
-                    else if (idx == 1) snprintf(line, sizeof(line), "Repeat: %s", repeat_str(app->repeat));
-                    else if (idx == 2) snprintf(line, sizeof(line), "Volume: %u", app->volume);
-                    else if (idx == 3) snprintf(line, sizeof(line), "Brightness: %u", app->brightness);
-                    else if (idx == 4) snprintf(line, sizeof(line), "Theme: %s", THEMES[app->theme_index].name);
+                    if (idx == 0) snprintf(line, sizeof(line), "Shuffle: [%s]", app->shuffle ? "ON" : "OFF");
+                    else if (idx == 1) snprintf(line, sizeof(line), "Repeat:  [%s]", repeat_str(app->repeat));
+                    else if (idx == 2) snprintf(line, sizeof(line), "Volume:     %u%%", app->volume);
+                    else if (idx == 3) snprintf(line, sizeof(line), "Brightness: %u%%", app->brightness);
+                    else if (idx == 4) snprintf(line, sizeof(line), "Theme:   %s", THEMES[app->theme_index].name);
                     break;
                 case SCREEN_SONGS: {
-                    const char *m = "  ";
+                    const char *m = " ";
                     if (idx == app->current_index && app->state != PLAYBACK_STOPPED) {
                         m = state_glyph(app->state);
                     }
@@ -255,12 +288,12 @@ static void render_list(framebuffer_t *fb, const app_state_t *app) {
                 }
                 case SCREEN_ALBUMS:
                     if (idx < app->albums_len) {
-                        snprintf(line, sizeof(line), "%s (%u)", app->albums[idx].name, app->albums[idx].count);
+                        snprintf(line, sizeof(line), "@ %s (%u)", app->albums[idx].name, app->albums[idx].count);
                     }
                     break;
                 case SCREEN_ARTISTS:
                     if (idx < app->artists_len) {
-                        snprintf(line, sizeof(line), "%s (%u)", app->artists[idx].name, app->artists[idx].count);
+                        snprintf(line, sizeof(line), "~ %s (%u)", app->artists[idx].name, app->artists[idx].count);
                     }
                     break;
                 case SCREEN_ALBUM_TRACKS:
@@ -270,7 +303,7 @@ static void render_list(framebuffer_t *fb, const app_state_t *app) {
                         : &app->artists[app->open_group];
                     if (idx < grp->count) {
                         uint16_t master = grp->track_indices[idx];
-                        const char *m = "  ";
+                        const char *m = " ";
                         if (master == app->current_index && app->state != PLAYBACK_STOPPED) {
                             m = state_glyph(app->state);
                         }
@@ -282,7 +315,15 @@ static void render_list(framebuffer_t *fb, const app_state_t *app) {
                     break;
             }
 
-            fb_draw_text_trunc(fb, 3, y + 1, line, (size_t)(fb->width / font_6x10.width - 1), &font_6x10, is_selected);
+            fb_draw_text_trunc(fb, 6, y + 1, line, (size_t)((fb->width - 12) / font_6x10.width), &font_6x10, is_selected);
+
+            if (app->screen == SCREEN_SETTINGS) {
+                if (idx == 2) {
+                    draw_slider(fb, fb->width - 70, y + 2, 45, 6, app->volume, is_selected);
+                } else if (idx == 3) {
+                    draw_slider(fb, fb->width - 70, y + 2, 45, 6, app->brightness, is_selected);
+                }
+            }
         }
 
         if (start > 0) draw_caret(fb, true);
@@ -297,7 +338,8 @@ static void render_now_playing(framebuffer_t *fb, const app_state_t *app) {
 
     const track_t *cur = app_get_current_track(app);
     if (!cur) {
-        fb_draw_text(fb, 6, UI_BODY_TOP + 8, "Nothing playing.", &font_6x10, false);
+        fb_draw_text(fb, 8, UI_BODY_TOP + 12, "No track selected.", &font_8x13_bold, false);
+        fb_draw_text(fb, 8, UI_BODY_TOP + 28, "Browse Library to start playback.", &font_6x10, false);
         return;
     }
 
@@ -306,30 +348,47 @@ static void render_now_playing(framebuffer_t *fb, const app_state_t *app) {
     int16_t art_size = ART_BOX_PX;
 
     if (app->art_valid && app->art_rgb565) {
-        fb_draw_rect(fb, ax, ay, art_size, art_size, true);
+        fb_draw_rect(fb, ax - 1, ay - 1, art_size + 2, art_size + 2, true);
     } else {
+        // Vinyl Record Groove styling
         fb_draw_rect(fb, ax, ay, art_size, art_size, true);
-        fb_draw_rect(fb, ax + 1, ay + 1, art_size - 2, art_size - 2, true);
+        int16_t cx = ax + art_size / 2;
+        int16_t cy = ay + art_size / 2;
+
+        int16_t r1 = art_size / 2 - 3;
+        int16_t r2 = art_size / 2 - 8;
+        int16_t r3 = art_size / 2 - 13;
+        int16_t r_center = 7;
+
+        if (r1 > 0) fb_draw_rect(fb, cx - r1, cy - r1, r1 * 2, r1 * 2, true);
+        if (r2 > 0) fb_draw_rect(fb, cx - r2, cy - r2, r2 * 2, r2 * 2, true);
+        if (r3 > 0) fb_draw_rect(fb, cx - r3, cy - r3, r3 * 2, r3 * 2, true);
+
+        fb_fill_rect(fb, cx - r_center, cy - r_center, r_center * 2, r_center * 2, true);
         const char *g = state_glyph(app->state);
-        int16_t gw = (int16_t)strlen(g) * font_8x13_bold.width;
-        fb_draw_text(fb, ax + (art_size - gw) / 2, ay + (art_size - font_8x13_bold.height) / 2, g, &font_8x13_bold, false);
+        int16_t gw = (int16_t)strlen(g) * font_6x10.width;
+        fb_draw_text(fb, cx - gw / 2, cy - font_6x10.height / 2, g, &font_6x10, true);
     }
 
     int16_t tx = ax + art_size + 8;
-    size_t cap = (size_t)((fb->width - tx) / font_6x10.width);
+    size_t cap = (size_t)((fb->width - tx - 4) / font_6x10.width);
 
     fb_draw_text_trunc(fb, tx, ay, cur->title, cap, &font_8x13_bold, false);
     fb_draw_text_trunc(fb, tx, ay + 15, cur->artist, cap, &font_6x10, false);
     fb_draw_text_trunc(fb, tx, ay + 27, cur->album, cap, &font_6x10, false);
 
-    char tags[32] = {0};
-    if (app->shuffle) {
-        strcat(tags, "SHUF ");
-    }
+    char tags[64] = {0};
+    if (app->shuffle) strcat(tags, "SHUF ");
     char rpt[16];
-    snprintf(rpt, sizeof(rpt), "RPT:%s", repeat_str(app->repeat));
+    snprintf(rpt, sizeof(rpt), "RPT:%s ", repeat_str(app->repeat));
     strcat(tags, rpt);
+    if (app->format_badge[0] != '\0') {
+        strcat(tags, app->format_badge);
+    }
     fb_draw_text(fb, tx, ay + 39, tags, &font_6x10, false);
+
+    // 8-Band Real-Time Audio Spectrum Visualizer
+    draw_spectrum(fb, fb->width - 38, ay + 26, app);
 
     int16_t by = fb->height - 22;
     int16_t q_top = (ay + art_size + 4) > (ay + 52) ? (ay + art_size + 4) : (ay + 52);

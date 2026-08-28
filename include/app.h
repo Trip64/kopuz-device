@@ -99,6 +99,12 @@ typedef struct {
     uint16_t art_size;
     bool art_valid;
 
+    // Visualizer and audio metadata
+    uint8_t vu_meter[8];
+    char format_badge[24];
+    uint16_t marquee_offset;
+    uint32_t last_anim_ms;
+
     bool dirty;
     bool progress_due;
 
