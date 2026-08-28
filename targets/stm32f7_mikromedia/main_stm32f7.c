@@ -83,7 +83,10 @@ static void MX_GPIO_Init(void) {
     HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
 }
 
+extern void hal_system_check_dfu(void);
+
 int main(void) {
+    hal_system_check_dfu();
     HAL_Init();
     SystemClock_Config();
     MX_GPIO_Init();

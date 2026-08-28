@@ -135,8 +135,12 @@ btn_event_t hal_input_poll(void) {
             case '-':
             case '_':
             case 'd':
-            case 'D':
                 return BTN_VOL_DOWN;
+            case 'D':
+            case 'F':
+                extern void hal_system_enter_dfu(void);
+                hal_system_enter_dfu();
+                break;
             case 'm':
             case 'M':
             case 27: // ESC
