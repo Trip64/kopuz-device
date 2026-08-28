@@ -43,11 +43,17 @@ void hal_storage_unmount(void) {
 
 static const char* normalize_path(const char *path) {
     if (!path) return "";
-    if (strncmp(path, "/sdcard/", 8) == 0) return path + 7;
-    if (strncmp(path, "/sdcard", 7) == 0) return (path[7] == '\0') ? "/" : path + 7;
-    if (strncmp(path, "sdcard/", 7) == 0) return path + 6;
-    if (strncmp(path, "/sd/", 4) == 0) return path + 3;
-    if (strncmp(path, "/sd", 3) == 0) return (path[3] == '\0') ? "/" : path + 3;
+    while (*path == ' ') path++;
+    if (strncmp(path, "/sdcard", 7) == 0) {
+        path += 7;
+    } else if (strncmp(path, "sdcard", 6) == 0) {
+        path += 6;
+    } else if (strncmp(path, "/sd", 3) == 0) {
+        path += 3;
+    } else if (strncmp(path, "sd", 2) == 0) {
+        path += 2;
+    }
+    while (*path == '/') path++;
     return path;
 }
 
