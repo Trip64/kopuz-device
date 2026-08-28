@@ -107,29 +107,6 @@ int main(void) {
     // Scan MicroSD card
     library_scan(STORAGE_MOUNT_POINT, &s_app);
 
-    // If no tracks on SD card, add demo tracks
-    if (s_app.queue_len == 0) {
-        track_t *t0 = &s_app.queue[0];
-        strncpy(t0->title, "All That She Wants", sizeof(t0->title) - 1);
-        strncpy(t0->artist, "Ace of Base", sizeof(t0->artist) - 1);
-        strncpy(t0->album, "Happy Nation", sizeof(t0->album) - 1);
-        strncpy(t0->path, "/sdcard/aceofbase.mp3", sizeof(t0->path) - 1);
-        t0->duration_secs = 210;
-
-        track_t *t1 = &s_app.queue[1];
-        strncpy(t1->title, "Distant Stars", sizeof(t1->title) - 1);
-        strncpy(t1->artist, "Retro Synth", sizeof(t1->artist) - 1);
-        strncpy(t1->album, "Cyber Pulse", sizeof(t1->album) - 1);
-        strncpy(t1->path, "/sdcard/Retro Synth/Distant Stars/02 - Cyber Pulse.flac", sizeof(t1->path) - 1);
-        t1->duration_secs = 185;
-
-        s_app.queue_len = 2;
-        s_app.current_index = 0;
-        s_app.state = PLAYBACK_PAUSED;
-        s_app.position_ms = 0; // Starts clean at 0:00
-        s_app.screen = SCREEN_NOW_PLAYING;
-    }
-
     // Use Nord Blue theme (Bright text on Slate Blue background)
     s_app.theme_index = 5;
     hal_display_set_theme(THEMES[s_app.theme_index].fg, THEMES[s_app.theme_index].bg);
