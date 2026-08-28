@@ -82,7 +82,7 @@ static void vs1053_spi_slow(void) {
 
 static void vs1053_spi_fast(void) {
     SPI2->CR1 &= ~SPI_CR1_SPE;
-    SPI2->CR1 = SPI_CR1_MSTR | SPI_CR1_SSI | SPI_CR1_SSM | (1 << SPI_CR1_BR_Pos); // DIV4 (~13.5 MHz)
+    SPI2->CR1 = SPI_CR1_MSTR | SPI_CR1_SSI | SPI_CR1_SSM | (2 << SPI_CR1_BR_Pos); // DIV8 (~6.75 MHz safe within 10.75MHz PLL limit)
     SPI2->CR2 = SPI_CR2_FRXTH | (7 << SPI_CR2_DS_Pos); // 8-bit, 8-bit RXNE threshold
     SPI2->CR1 |= SPI_CR1_SPE;
 }
@@ -268,9 +268,6 @@ int hal_audio_init(uint32_t sample_rate, uint8_t channels) {
 
     // 8. Set volume (0 = max volume: 0x0000, 254 = silence)
     hal_audio_set_volume(s_volume);
-
-    // 9. Send standard WAV header for PCM decoding
-    vs1053_send_wav_header(s_sample_rate, s_channels);
 
     s_codec_ready = true;
     s_running = true;
