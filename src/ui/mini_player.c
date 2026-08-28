@@ -319,27 +319,39 @@ static void render_list(framebuffer_t *fb, const app_state_t *app) {
                     break;
                 }
                 case SCREEN_SETTINGS:
-                    if (idx == 0) snprintf(line, sizeof(line), "Shuffle:    [%s]", app->shuffle ? "ON" : "OFF");
-                    else if (idx == 1) snprintf(line, sizeof(line), "Repeat:     [%s]", repeat_str(app->repeat));
-                    else if (idx == 2) snprintf(line, sizeof(line), "Volume:        %u%%", app->volume);
-                    else if (idx == 3) snprintf(line, sizeof(line), "Brightness:    %u%%", app->brightness);
-                    else if (idx == 4) {
-                        if (fb->width <= 140) {
-                            snprintf(line, sizeof(line), "Theme:      [Mono OLED]");
-                        } else if (fb->width == 400 && fb->height == 240) {
-                            snprintf(line, sizeof(line), "Theme:      [Reflective MIP]");
-                        } else if (fb->width == 296 && fb->height == 128) {
-                            snprintf(line, sizeof(line), "Theme:      [Tri-Color BWR]");
-                        } else {
-                            snprintf(line, sizeof(line), "Theme:      %s", THEMES[app->theme_index].name);
-                        }
-                    }
+                    if (fb->width <= 140) {
+                        if (idx == 0) snprintf(line, sizeof(line), "Shuffle: %s", app->shuffle ? "ON" : "OFF");
+                        else if (idx == 1) snprintf(line, sizeof(line), "Repeat:  %s", repeat_str(app->repeat));
+                        else if (idx == 2) snprintf(line, sizeof(line), "Volume:  %u%%", app->volume);
+                        else if (idx == 3) snprintf(line, sizeof(line), "Bright:  %u%%", app->brightness);
+                        else if (idx == 4) snprintf(line, sizeof(line), "Theme:   Mono");
 #if HAS_BLE_AUDIO
-                    else if (idx == 5) snprintf(line, sizeof(line), "Output:     [%s]", (app->output_mode == OUTPUT_BLE_AUDIO) ? "BLE AUDIO" : "I2S DAC");
-                    else if (idx == 6) snprintf(line, sizeof(line), "Visualizer: [%s]", app->vu_enabled ? "ON" : "OFF");
+                        else if (idx == 5) snprintf(line, sizeof(line), "Output:  %s", (app->output_mode == OUTPUT_BLE_AUDIO) ? "BLE" : "I2S");
+                        else if (idx == 6) snprintf(line, sizeof(line), "VU:      %s", app->vu_enabled ? "ON" : "OFF");
 #else
-                    else if (idx == 5) snprintf(line, sizeof(line), "Visualizer: [%s]", app->vu_enabled ? "ON" : "OFF");
+                        else if (idx == 5) snprintf(line, sizeof(line), "VU:      %s", app->vu_enabled ? "ON" : "OFF");
 #endif
+                    } else {
+                        if (idx == 0) snprintf(line, sizeof(line), "Shuffle:    [%s]", app->shuffle ? "ON" : "OFF");
+                        else if (idx == 1) snprintf(line, sizeof(line), "Repeat:     [%s]", repeat_str(app->repeat));
+                        else if (idx == 2) snprintf(line, sizeof(line), "Volume:        %u%%", app->volume);
+                        else if (idx == 3) snprintf(line, sizeof(line), "Brightness:    %u%%", app->brightness);
+                        else if (idx == 4) {
+                            if (fb->width == 400 && fb->height == 240) {
+                                snprintf(line, sizeof(line), "Theme:      [Reflective MIP]");
+                            } else if (fb->width == 296 && fb->height == 128) {
+                                snprintf(line, sizeof(line), "Theme:      [Tri-Color BWR]");
+                            } else {
+                                snprintf(line, sizeof(line), "Theme:      %s", THEMES[app->theme_index].name);
+                            }
+                        }
+#if HAS_BLE_AUDIO
+                        else if (idx == 5) snprintf(line, sizeof(line), "Output:     [%s]", (app->output_mode == OUTPUT_BLE_AUDIO) ? "BLE AUDIO" : "I2S DAC");
+                        else if (idx == 6) snprintf(line, sizeof(line), "Visualizer: [%s]", app->vu_enabled ? "ON" : "OFF");
+#else
+                        else if (idx == 5) snprintf(line, sizeof(line), "Visualizer: [%s]", app->vu_enabled ? "ON" : "OFF");
+#endif
+                    }
                     break;
                 case SCREEN_SONGS: {
                     const char *m = " ";
