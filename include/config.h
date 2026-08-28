@@ -23,6 +23,11 @@ extern "C" {
     #define LCD_HEIGHT      240
     #define COLOR_DISPLAY   0
     #define ART_BOX_PX      48
+#elif defined(TARGET_STM32F7) || defined(TARGET_STM32F7_MIKROMEDIA) || defined(TARGET_WQVGA)
+    #define LCD_WIDTH       480
+    #define LCD_HEIGHT      272
+    #define COLOR_DISPLAY   1
+    #define ART_BOX_PX      80
 #elif defined(PICO_BOARD) || defined(RASPBERRYPI_PICO) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(TARGET_QVGA)
     #define LCD_WIDTH       320
     #define LCD_HEIGHT      240

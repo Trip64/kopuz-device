@@ -12,8 +12,9 @@ Standalone embedded music-player firmware written in high-performance, determini
   - **Raspberry Pi Pico (RP2040) & Pico 2 (RP2350)**: ILI9341 320x240 SPI display, PIO-driven I2S DAC, and dual-core processing.
   - **LilyGO T-Display S3 (ESP32-S3)**: 1.9-inch 170x320 ST7789 8-bit parallel display, hardware I2S DAC, and BLE audio broadcast.
   - **Nordic Semiconductor (nRF52840 & nRF54L15)**: Hardware `NRF_I2S` audio engine, 32 MHz EasyDMA MicroSD storage, and ultra-low-power standby (< 1.5 uA).
+  - **mikromedia Plus for STM32F7 (STM32F746ZG)**: High-performance 216 MHz ARM Cortex-M7 with 4.3" 480×272 16-bit parallel TFT (SSD1963), VS1053B audio codec, and native 4-bit SDMMC.
 - **Multi-Display Profile Support**:
-  - `COLOR_LCD` (320x240 / 320x170): 16-bit RGB565 backlit color display with full album art decoding (ST7789, ILI9341).
+  - `COLOR_LCD` (480x272 / 320x240 / 320x170): 16-bit RGB565 backlit color display with full album art decoding (SSD1963, ST7789, ILI9341).
   - `OLED_I2C` (128x64): Pure monochrome 1bpp layout for low-cost 0.96" / 1.3" I2C OLEDs (SSD1306, SH1106).
   - `EINK_EPD` (250x122 / 296x128): Ultra-low-power sunlight-readable electronic paper display (SSD1680, UC8151).
   - `SHARP_MIP` (400x240): Reflective Memory-in-Pixel display.
@@ -38,6 +39,7 @@ See [CONNECTIONS.md](CONNECTIONS.md) for complete pinouts, wiring diagrams, and 
 - Raspberry Pi Pico (RP2040) / Pico 2 (RP2350)
 - LilyGO T-Display S3 (ESP32-S3)
 - Nordic Semiconductor nRF52840 & nRF54L15
+- mikromedia Plus for STM32F7 (STM32F746ZG)
 - I2C OLED (SSD1306), SPI Color LCD (ST7789/ILI9341), and E-Ink (SSD1680)
 
 See [DESIGN.md](DESIGN.md) for deep technical architecture, memory budgets, and design specifications.
@@ -125,6 +127,21 @@ cmake -B build -DKOPUZ_TARGET=NRF52840
 cmake --build build
 ```
 
+### 3.5 mikromedia Plus for STM32F7 (STM32F746ZG)
+
+Requires `arm-none-eabi-gcc`:
+
+```sh
+cd targets/stm32f7_mikromedia
+cmake -B build -DKOPUZ_TARGET=STM32F7
+cmake --build build
+```
+
+Flash via ST-Link:
+```sh
+openocd -f interface/stlink.cfg -f target/stm32f7x.cfg -c "program build/kopuz_stm32f7.elf verify reset exit"
+```
+
 ---
 
 ## 4. Directory Structure
@@ -162,5 +179,6 @@ cmake --build build
     ├── nrf52840/               # Nordic nRF52840 target
     ├── nrf54l15/               # Nordic nRF54L15 target architecture
     ├── rp2040/                 # RP2040 and RP2350 Pico SDK target
-    └── simulator/              # Desktop SDL2 simulator target
+    ├── simulator/              # Desktop SDL2 simulator target
+    └── stm32f7_mikromedia/     # mikromedia Plus for STM32F7 target
 ```

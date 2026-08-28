@@ -243,13 +243,56 @@ The next-generation ultra-low-power ARM Cortex-M33 SoC with hardware Serial Audi
 
 ---
 
-## 5. Summary Target Matrix
+## 5. mikromedia Plus for STM32F7 (STM32F746ZG @ 216 MHz)
 
-| Feature | Desktop Simulator | RP2040 / RP2350 | LilyGO T-Display S3 | Nordic nRF52840 | Nordic nRF54L15 |
-|:---|:---|:---|:---|:---|:---|
-| CPU Core | Host x86_64 / ARM64 | Dual Cortex-M0+ / M33 | Dual Xtensa LX7 @ 240MHz | Cortex-M4F @ 64MHz | Cortex-M33 @ 128MHz |
-| Default Display | SDL2 Window | 320x240 ILI9341 SPI | 320x170 ST7789 Parallel | Multi-Profile (OLED/LCD/EPD)| Multi-Profile (OLED/LCD/EPD)|
-| Audio Hardware | SDL2 Audio Queue | PIO I2S + DMA | Hardware I2S + DMA | NRF_I2S + EasyDMA | SAI / I2S + EasyDMA |
-| Wireless Audio | N/A | N/A | BLE Audio (LC3) | [EXP] 2.4G Custom BLE | [EXP] BT 5.4 Auracast |
-| Sleep Current | N/A | ~1.5 mA | ~15 uA | < 1.5 uA (System OFF) | < 0.8 uA (System OFF) |
+The mikromedia Plus for STM32F7 is an integrated ARM Cortex-M7 board with onboard 4.3" 480×272 TFT, VS1053B audio codec, and high-speed 4-bit SDMMC MicroSD slot.
+
+### 5.1 16-Bit Parallel Display (SSD1963 480×272)
+
+| Signal Name | STM32F7 Pin | Notes |
+|:---|:---|:---|
+| Data Bus (D0..D15) | PE0 .. PE15 | 16-bit parallel data port |
+| TFT_WR (Write) | PF11 | Active-low Write strobe |
+| TFT_RD (Read) | PF12 | Active-low Read strobe |
+| TFT_CS (Chip Select)| PF13 | Active-low Chip Select |
+| TFT_RST (Reset) | PF14 | Active-low Hardware Reset |
+| TFT_RS (Data/Cmd) | PF15 | 0 = Command / Address, 1 = Data |
+| TFT_BLED (Backlight)| PF10 | Hardware PWM brightness control |
+
+### 5.2 Audio Codec (VS1053B on SPI2)
+
+| Signal Name | STM32F7 Pin | Notes |
+|:---|:---|:---|
+| SPI2_SCK | PB13 | Serial Clock |
+| SPI2_MISO | PB14 | Data from codec |
+| SPI2_MOSI | PB15 | Data to codec |
+| MP3_CS | PD11 | Control Chip Select (SCI) |
+| XDCS / BSYNC | PD10 | Data Chip Select (SDI) |
+| DREQ | PD9 | Data Request interrupt |
+| MP3_RST | PD8 | Hardware reset |
+
+### 5.3 MicroSD Slot (Native 4-bit SDMMC1)
+
+| Signal Name | STM32F7 Pin | Notes |
+|:---|:---|:---|
+| SDMMC_D0 | PC8 | Data bit 0 |
+| SDMMC_D1 | PC9 | Data bit 1 |
+| SDMMC_D2 | PC10 | Data bit 2 |
+| SDMMC_D3 | PC11 | Data bit 3 |
+| SDMMC_CMD | PD2 | Command line |
+| SDMMC_CLK | PC12 | Clock (up to 48 MHz) |
+| SD_DETECT | PD3 | Active-low Card Detect switch |
+
+---
+
+## 6. Summary Target Matrix
+
+| Feature | Desktop Simulator | RP2040 / RP2350 | LilyGO T-Display S3 | Nordic nRF52840 | Nordic nRF54L15 | mikromedia Plus STM32F7 |
+|:---|:---|:---|:---|:---|:---|:---|
+| CPU Core | Host x86_64 / ARM64 | Dual Cortex-M0+ / M33 | Dual Xtensa LX7 @ 240MHz | Cortex-M4F @ 64MHz | Cortex-M33 @ 128MHz | Cortex-M7 @ 216MHz |
+| Default Display | SDL2 Window | 320x240 ILI9341 SPI | 320x170 ST7789 Parallel | Multi-Profile (OLED/LCD/EPD)| Multi-Profile (OLED/LCD/EPD)| 480x272 SSD1963 16b Parallel |
+| Audio Hardware | SDL2 Audio Queue | PIO I2S + DMA | Hardware I2S + DMA | NRF_I2S + EasyDMA | SAI / I2S + EasyDMA | VS1053B SPI2 + STM32 DAC |
+| Wireless Audio | N/A | N/A | BLE Audio (LC3) | [EXP] 2.4G Custom BLE | [EXP] BT 5.4 Auracast | N/A |
+| Flash Binary | build/kopuz_sim | build_rp2040/*.uf2 | ESP-IDF .bin | nRF52 .hex / .elf | nRF54 .hex / .elf | STM32F7 .bin / .hex / ST-Link |
+
 
