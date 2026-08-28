@@ -1,40 +1,46 @@
 # Kopuz Device: C/C++ Embedded Music Player
 
-Standalone embedded music-player firmware rewritten in high-performance, deterministic C99 and C++17. Companion hardware player to the Kopuz music player, running on ultra-low-power microcontrollers with no external PSRAM requirements.
+Standalone embedded music-player firmware written in high-performance, deterministic C99 and C++17. Companion hardware player to the Kopuz music player, running on ultra-low-power microcontrollers with no external PSRAM requirements.
 
 ---
 
 ## 1. Overview and Key Features
 
-- Low Memory Footprint: Complete firmware runs within <= 48 KB RAM (runs in internal SRAM on RP2040 and ESP32-S3 without 8 MB Octal PSRAM).
-- Multi-Target Architecture:
-  - Desktop Simulator: Full interactive graphical simulator running natively on macOS, Linux, and Windows with SDL2 audio/video.
-  - LilyGO T-Display S3 (ESP32-S3): 1.9-inch 170x320 ST7789 8-bit parallel display (landscape 320x170), I2S DAC, and dual-core task scheduling.
-  - Raspberry Pi Pico (RP2040) and Pico 2 (RP2350): ILI9341 320x240 SPI display, PIO-driven I2S DAC, and dual-core processing.
-- Audio Codec Pipeline:
-  - FLAC: dr_flac streaming integer decoder with native FLAC PICTURE metadata extraction.
-  - MP3: minimp3 fixed-point streaming decoder with ID3v2 APIC cover art extraction.
-  - WAV: Zero-overhead streaming RIFF/WAVE PCM reader.
-  - Album Art: stb_image JPEG decompressor with box-sampling downscaling to RGB565.
-- User Interface:
+- **Low Memory Footprint**: Complete firmware runs within <= 48 KB RAM (runs in internal SRAM on RP2040, ESP32-S3, and Nordic nRF52840 without external PSRAM).
+- **Multi-Target Architecture**:
+  - **Desktop Simulator**: Full interactive graphical simulator running natively on macOS, Linux, and Windows with SDL2 audio/video.
+  - **Raspberry Pi Pico (RP2040) & Pico 2 (RP2350)**: ILI9341 320x240 SPI display, PIO-driven I2S DAC, and dual-core processing.
+  - **LilyGO T-Display S3 (ESP32-S3)**: 1.9-inch 170x320 ST7789 8-bit parallel display, hardware I2S DAC, and BLE audio broadcast.
+  - **Nordic Semiconductor (nRF52840 & nRF54L15)**: Hardware `NRF_I2S` audio engine, 32 MHz EasyDMA MicroSD storage, and ultra-low-power standby (< 1.5 uA).
+- **Multi-Display Profile Support**:
+  - `COLOR_LCD` (320x240 / 320x170): 16-bit RGB565 backlit color display with full album art decoding (ST7789, ILI9341).
+  - `OLED_I2C` (128x64): Pure monochrome 1bpp layout for low-cost 0.96" / 1.3" I2C OLEDs (SSD1306, SH1106).
+  - `EINK_EPD` (250x122 / 296x128): Ultra-low-power sunlight-readable electronic paper display (SSD1680, UC8151).
+  - `SHARP_MIP` (400x240): Reflective Memory-in-Pixel display.
+- **Audio Codec Pipeline**:
+  - **FLAC**: dr_flac streaming integer decoder with native FLAC PICTURE metadata extraction.
+  - **MP3**: minimp3 fixed-point streaming decoder with ID3v2 APIC cover art extraction.
+  - **WAV**: Zero-overhead streaming RIFF/WAVE PCM reader.
+  - **Album Art**: stb_image JPEG decompressor with box-sampling downscaling to RGB565.
+- **User Interface**:
   - 1bpp monochrome layout engine with 24 Rusic color themes.
-  - Live Now-Playing screen with cover art, track info, shuffle/repeat flags, volume readout, and Up Next queue preview.
-  - Full queue browsing across Songs, Albums, Artists, and Settings.
-  - In-track seeking (+/- 5 seconds) and button repeat emulation.
-  - Real-time RAM usage and battery voltage monitoring.
-- System Safety:
+  - **2-Column Hi-Fi Layout**: Cover art box, 8-band segmented audio equalizer with floating peak-hold physics, format quality badge (`[FLAC 16b/44k]`), and Up Next track queue.
+  - **Expandable Settings**: Toggleable visualizer, audio output mode (`I2S DAC` vs `BLE AUDIO`), shuffle, repeat, volume slider, brightness, and themes.
+- **System Safety**:
   - Blue Screen of Death (BSOD) crash recovery system with dynamic QR code generation.
-  - Out-of-memory traps and RAM ceiling monitoring to prevent silent hangs.
+  - Memory ceiling monitoring and RAM leak traps.
 
 ---
 
 ## 2. Supported Targets and Wiring
 
-See CONNECTIONS.md for complete pinouts, wiring diagrams, and schematics for:
+See [CONNECTIONS.md](CONNECTIONS.md) for complete pinouts, wiring diagrams, and schematics for:
 - Raspberry Pi Pico (RP2040) / Pico 2 (RP2350)
 - LilyGO T-Display S3 (ESP32-S3)
+- Nordic Semiconductor nRF52840 & nRF54L15
+- I2C OLED (SSD1306), SPI Color LCD (ST7789/ILI9341), and E-Ink (SSD1680)
 
-See DESIGN.md for deep technical architecture, memory budgets, and design specifications.
+See [DESIGN.md](DESIGN.md) for deep technical architecture, memory budgets, and design specifications.
 
 ---
 
@@ -67,16 +73,16 @@ cmake --build .
 ```
 
 Controls in Simulator:
-- Enter / Space: Select / Play-Pause
-- Enter (Hold >= 500ms): Back
-- Down / J: Next track / Scroll down
-- Up / K: Prev track / Scroll up
-- Right / L: Seek forward 5s
-- Left / H: Seek backward 5s
-- + / = / U: Volume up
-- - / D: Volume down
-- Esc / Backspace: Back
-- C: Trigger BSOD crash test
+- `Enter` / `Space`: Select / Play-Pause
+- `Enter` (Hold >= 500ms): Back
+- `Down` / `J`: Next track / Scroll down
+- `Up` / `K`: Prev track / Scroll up
+- `Right` / `L`: Seek forward 5s
+- `Left` / `H`: Seek backward 5s
+- `+` / `=` / `U`: Volume up
+- `-` / `D`: Volume down
+- `Esc` / `Backspace`: Back
+- `C`: Trigger BSOD crash test
 
 ### 3.2 Raspberry Pi Pico / Pico 2 (RP2040 / RP2350)
 
@@ -107,6 +113,16 @@ cd targets/esp32s3_tdisplay
 idf.py set-target esp32s3
 idf.py build
 idf.py -p /dev/ttyACM0 flash monitor
+```
+
+### 3.4 Nordic Semiconductor (nRF52840)
+
+Requires `arm-none-eabi-gcc`:
+
+```sh
+cd targets/nrf52840
+cmake -B build -DKOPUZ_TARGET=NRF52840
+cmake --build build
 ```
 
 ---
@@ -143,6 +159,8 @@ idf.py -p /dev/ttyACM0 flash monitor
 │   └── ui/                     # Framebuffer renderer, mini-player, BSOD, QR
 └── targets/                    # Target-specific implementations
     ├── esp32s3_tdisplay/       # LilyGO T-Display S3 ESP-IDF target
+    ├── nrf52840/               # Nordic nRF52840 target
+    ├── nrf54l15/               # Nordic nRF54L15 target architecture
     ├── rp2040/                 # RP2040 and RP2350 Pico SDK target
     └── simulator/              # Desktop SDL2 simulator target
 ```
