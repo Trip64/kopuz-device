@@ -375,7 +375,7 @@ size_t hal_audio_write_stream(const uint8_t *data, size_t len) {
 
 void hal_audio_beep(uint16_t freq_hz, uint16_t duration_ms) {
     if (freq_hz == 0) freq_hz = 1500;
-    if (duration_ms == 0) duration_ms = 30;
+    if (duration_ms == 0) duration_ms = 25;
 
     // 1. Physical piezo buzzer click (PB8)
     uint32_t cycles = (freq_hz * duration_ms) / 1000;
@@ -386,8 +386,8 @@ void hal_audio_beep(uint16_t freq_hz, uint16_t duration_ms) {
         for (volatile int d = 0; d < 350; d++);
     }
 
-    // 2. VS1053 hardware sine test tone to earphones
-    if (s_codec_ready) {
+    // 2. VS1053 hardware sine test tone to earphones (only when not streaming audio)
+    if (s_codec_ready && !s_running) {
         vs1053_sine_test(0x7E, duration_ms);
     }
 }

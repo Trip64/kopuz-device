@@ -8,6 +8,11 @@
 
 #include "hal/hal_storage.h"
 
+#define HW_STREAM_BUF_SIZE 4096
+static uint8_t s_hw_buf[HW_STREAM_BUF_SIZE];
+static size_t s_hw_buf_len = 0;
+static size_t s_hw_buf_pos = 0;
+
 static app_state_t *s_app = NULL;
 static decoder_t *s_decoder = NULL;
 static hal_file_t *s_raw_stream_file = NULL;
@@ -32,6 +37,8 @@ static void load_current_track(void) {
         s_raw_stream_file = hal_fopen(track->path, "rb");
         if (s_raw_stream_file) {
             s_is_hw_stream = true;
+            s_hw_buf_len = 0;
+            s_hw_buf_pos = 0;
             hal_audio_init(44100, 2);
             hal_audio_set_volume(s_app->volume);
 
@@ -161,27 +168,41 @@ void audio_player_process(void) {
     }
 
     if (s_is_hw_stream && s_raw_stream_file) {
-        uint8_t sbuf[256];
-        size_t r = hal_fread(sbuf, 1, sizeof(sbuf), s_raw_stream_file);
-        if (r > 0) {
-            hal_audio_write_stream(sbuf, r);
-            if (s_app->vu_enabled) {
-                for (int b = 0; b < 8; b++) {
-                    uint8_t v = (sbuf[b * 16] & 0x0F) + 6;
-                    s_app->vu_meter[b] = v;
-                    if (v > s_app->vu_peak[b]) s_app->vu_peak[b] = v;
+        // While codec internal FIFO has room, push 32-byte chunks
+        int loops = 0;
+        while (hal_audio_needs_data() && loops++ < 64) {
+            if (s_hw_buf_pos >= s_hw_buf_len) {
+                s_hw_buf_len = hal_fread(s_hw_buf, 1, sizeof(s_hw_buf), s_raw_stream_file);
+                s_hw_buf_pos = 0;
+                if (s_hw_buf_len == 0) {
+                    app_command_t cmd = app_on_track_end(s_app);
+                    if (cmd == CMD_LOAD_CURRENT) {
+                        load_current_track();
+                    } else {
+                        hal_audio_stop();
+                        if (s_raw_stream_file) {
+                            hal_fclose(s_raw_stream_file);
+                            s_raw_stream_file = NULL;
+                        }
+                    }
+                    return;
                 }
             }
-        } else {
-            app_command_t cmd = app_on_track_end(s_app);
-            if (cmd == CMD_LOAD_CURRENT) {
-                load_current_track();
-            } else {
-                hal_audio_stop();
-                if (s_raw_stream_file) {
-                    hal_fclose(s_raw_stream_file);
-                    s_raw_stream_file = NULL;
-                }
+
+            size_t to_send = s_hw_buf_len - s_hw_buf_pos;
+            if (to_send > 32) to_send = 32;
+
+            size_t written = hal_audio_write_stream(s_hw_buf + s_hw_buf_pos, to_send);
+            if (written == 0) break;
+            s_hw_buf_pos += written;
+            s_app->position_ms += (uint32_t)((written * 1000) / (128000 / 8));
+        }
+
+        if (s_app->vu_enabled && s_hw_buf_len > 0) {
+            for (int b = 0; b < 8; b++) {
+                uint8_t v = (s_hw_buf[(b * 32) % s_hw_buf_len] & 0x0F) + 6;
+                s_app->vu_meter[b] = v;
+                if (v > s_app->vu_peak[b]) s_app->vu_peak[b] = v;
             }
         }
         return;
