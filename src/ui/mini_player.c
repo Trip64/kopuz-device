@@ -6,6 +6,10 @@
 #include <string.h>
 #include <ctype.h>
 
+#if defined(TARGET_SIMULATOR)
+bool hal_sim_display_is_color(void);
+#endif
+
 static void draw_battery(framebuffer_t *fb, const app_state_t *app);
 static void draw_topbar(framebuffer_t *fb, const app_state_t *app);
 static void draw_caret(framebuffer_t *fb, bool up);
@@ -13,6 +17,8 @@ static void draw_progress_bar(framebuffer_t *fb, int16_t x, int16_t y, int16_t w
 static void render_list(framebuffer_t *fb, const app_state_t *app);
 static void render_now_playing(framebuffer_t *fb, const app_state_t *app);
 static void render_mini_footer(framebuffer_t *fb, const app_state_t *app);
+static void draw_dithered_art_1bpp(framebuffer_t *fb, int16_t dst_x, int16_t dst_y, int16_t size,
+                                   const uint8_t *src_rgb565, uint8_t src_size);
 
 static const char* state_glyph(playback_state_t st) {
     switch (st) {
@@ -75,6 +81,32 @@ void ui_render_message(framebuffer_t *fb, const char *heading, const char *body)
     fb_draw_text(fb, 6, 32, body, &font_6x10, false);
 }
 
+static inline int16_t get_ui_header_y(const framebuffer_t *fb) {
+    return (fb->height <= 64) ? 9 : ((fb->height <= 128) ? 12 : 14);
+}
+
+static inline int16_t get_ui_body_top(const framebuffer_t *fb) {
+    return (fb->height <= 64) ? 11 : (get_ui_header_y(fb) + 2);
+}
+
+static inline int16_t get_ui_row_height(const framebuffer_t *fb) {
+    return (fb->height <= 64) ? 10 : ((fb->height <= 128) ? 12 : 13);
+}
+
+static inline int16_t get_ui_footer_height(const framebuffer_t *fb) {
+    return (fb->height <= 64) ? 12 : ((fb->height <= 128) ? 16 : 24);
+}
+
+static inline int16_t get_ui_footer_y(const framebuffer_t *fb) {
+    return fb->height - get_ui_footer_height(fb);
+}
+
+static inline uint16_t get_ui_visible_rows(const framebuffer_t *fb) {
+    int16_t h = get_ui_footer_y(fb) - get_ui_body_top(fb);
+    int16_t r = get_ui_row_height(fb);
+    return (h > 0 && r > 0) ? (uint16_t)(h / r) : 1;
+}
+
 static void draw_topbar(framebuffer_t *fb, const app_state_t *app) {
     char header[32] = {0};
     const char *title = "KOPUZ";
@@ -112,9 +144,11 @@ static void draw_topbar(framebuffer_t *fb, const app_state_t *app) {
     }
     header[i] = '\0';
 
-    fb_draw_text(fb, 2, 1, header, &font_8x13_bold, false);
+    int16_t hy = get_ui_header_y(fb);
+    int16_t ty = (fb->height <= 64) ? 0 : 1;
+    fb_draw_text(fb, 2, ty, header, (fb->height <= 64) ? &font_6x10 : &font_8x13_bold, false);
     draw_battery(fb, app);
-    fb_draw_line(fb, 0, UI_HEADER_Y, fb->width, UI_HEADER_Y, true);
+    fb_draw_line(fb, 0, hy, fb->width, hy, true);
 }
 
 static uint32_t get_ram_usage_bytes(const app_state_t *app) {
@@ -149,11 +183,12 @@ static void draw_battery(framebuffer_t *fb, const app_state_t *app) {
 
     int16_t tw = (int16_t)strlen(buf) * font_6x10.width;
     int16_t tx = fb->width - 2 - tw;
-    fb_draw_text(fb, tx, 1, buf, &font_6x10, false);
+    int16_t ty = (fb->height <= 64) ? 0 : 1;
+    fb_draw_text(fb, tx, ty, buf, &font_6x10, false);
 
     int16_t bat_left = tx;
 
-    if (pct >= 0) {
+    if (pct >= 0 && fb->width > 140) {
         int16_t bw = 14;
         int16_t bh = 7;
         int16_t iy = 2;
@@ -169,19 +204,20 @@ static void draw_battery(framebuffer_t *fb, const app_state_t *app) {
         }
     }
 
-    uint32_t ram_bytes = get_ram_usage_bytes(app);
-    uint32_t ram_kb = (ram_bytes + 1023) / 1024;
-    char ram_str[16];
-    snprintf(ram_str, sizeof(ram_str), "%uK", (unsigned)ram_kb);
-    int16_t rw = (int16_t)strlen(ram_str) * font_6x10.width;
-    int16_t rx = bat_left - rw - 6;
-
-    fb_draw_text(fb, rx, 1, ram_str, &font_6x10, false);
+    if (fb->width > 200) {
+        uint32_t ram_bytes = get_ram_usage_bytes(app);
+        uint32_t ram_kb = (ram_bytes + 1023) / 1024;
+        char ram_str[16];
+        snprintf(ram_str, sizeof(ram_str), "%uK", (unsigned)ram_kb);
+        int16_t rw = (int16_t)strlen(ram_str) * font_6x10.width;
+        int16_t rx = bat_left - rw - 6;
+        fb_draw_text(fb, rx, ty, ram_str, &font_6x10, false);
+    }
 }
 
 static void draw_caret(framebuffer_t *fb, bool up) {
     int16_t x = fb->width - 6;
-    int16_t y = up ? UI_BODY_TOP : (UI_FOOTER_Y - 6);
+    int16_t y = up ? get_ui_body_top(fb) : (get_ui_footer_y(fb) - 6);
 
     if (up) {
         fb_draw_line(fb, x, y + 4, x + 2, y, true);
@@ -194,38 +230,36 @@ static void draw_caret(framebuffer_t *fb, bool up) {
 
 static void draw_progress_bar(framebuffer_t *fb, int16_t x, int16_t y, int16_t w, float frac) {
     if (w <= 2) return;
-    fb_draw_rect(fb, x, y, w, 5, true);
+    int16_t h = (fb->height <= 64) ? 4 : 5;
+    fb_draw_rect(fb, x, y, w, h, true);
 
     if (frac > 1.0f) frac = 1.0f;
     if (frac < 0.0f) frac = 0.0f;
 
     int16_t fill = (int16_t)((w - 2) * frac);
     if (fill > 0) {
-        fb_fill_rect(fb, x + 1, y + 1, fill, 3, true);
+        fb_fill_rect(fb, x + 1, y + 1, fill, h - 2, true);
     }
 }
 
 static void draw_spectrum(framebuffer_t *fb, int16_t x, int16_t y, int16_t max_h, const app_state_t *app) {
     if (!fb || !app || !app->vu_enabled) return;
-    int16_t bar_w = 5;
-    int16_t gap = 2;
+    int16_t bar_w = (fb->width <= 140) ? 4 : 5;
+    int16_t gap = (fb->width <= 140) ? 1 : 2;
 
     for (int b = 0; b < 8; b++) {
         int16_t bx = x + b * (bar_w + gap);
         uint8_t lvl = (uint8_t)(((uint32_t)app->vu_meter[b] * (uint32_t)max_h) / 24);
         if (lvl > max_h) lvl = (uint8_t)max_h;
 
-        // Continuous baseline bar
         fb_draw_line(fb, bx, y + max_h, bx + bar_w - 1, y + max_h, true);
 
-        // Segmented LED blocks (3px block, 1px dark gap)
         if (lvl > 0) {
             for (int16_t h = 2; h <= lvl; h += 3) {
                 fb_fill_rect(fb, bx, y + (max_h - h), bar_w, 2, true);
             }
         }
 
-        // Floating peak indicator
         uint8_t pk = (uint8_t)(((uint32_t)app->vu_peak[b] * (uint32_t)max_h) / 24);
         if (pk > max_h) pk = (uint8_t)max_h;
         if (pk > 1) {
@@ -247,14 +281,16 @@ static void render_list(framebuffer_t *fb, const app_state_t *app) {
 
     uint16_t n = app_get_list_len(app);
     uint16_t sel = app_get_current_selection(app);
+    int16_t body_top = get_ui_body_top(fb);
+    int16_t row_h = get_ui_row_height(fb);
+    uint16_t visible = get_ui_visible_rows(fb);
 
     if (n == 0) {
         const char *empty_msg = "No tracks found on /sdcard.";
         if (app->screen == SCREEN_ALBUMS) empty_msg = "No albums found.";
         else if (app->screen == SCREEN_ARTISTS) empty_msg = "No artists found.";
-        fb_draw_text(fb, 8, UI_BODY_TOP + 8, empty_msg, &font_6x10, false);
+        fb_draw_text(fb, 8, body_top + 8, empty_msg, &font_6x10, false);
     } else {
-        uint16_t visible = UI_VISIBLE_ROWS;
         uint16_t max_start = (n > visible) ? (n - visible) : 0;
         uint16_t start = (sel > visible / 2) ? (sel - visible / 2) : 0;
         if (start > max_start) start = max_start;
@@ -263,11 +299,11 @@ static void render_list(framebuffer_t *fb, const app_state_t *app) {
             uint16_t idx = start + row;
             if (idx >= n) break;
 
-            int16_t y = UI_BODY_TOP + row * UI_ROW_HEIGHT;
+            int16_t y = body_top + row * row_h;
             bool is_selected = (idx == sel);
 
             if (is_selected) {
-                fb_fill_rect(fb, 2, y - 1, fb->width - 4, UI_ROW_HEIGHT, true);
+                fb_fill_rect(fb, 2, y - 1, fb->width - 4, row_h, true);
             }
 
             char line[96] = {0};
@@ -287,7 +323,17 @@ static void render_list(framebuffer_t *fb, const app_state_t *app) {
                     else if (idx == 1) snprintf(line, sizeof(line), "Repeat:     [%s]", repeat_str(app->repeat));
                     else if (idx == 2) snprintf(line, sizeof(line), "Volume:        %u%%", app->volume);
                     else if (idx == 3) snprintf(line, sizeof(line), "Brightness:    %u%%", app->brightness);
-                    else if (idx == 4) snprintf(line, sizeof(line), "Theme:      %s", THEMES[app->theme_index].name);
+                    else if (idx == 4) {
+                        if (fb->width <= 140) {
+                            snprintf(line, sizeof(line), "Theme:      [Mono OLED]");
+                        } else if (fb->width == 400 && fb->height == 240) {
+                            snprintf(line, sizeof(line), "Theme:      [Reflective MIP]");
+                        } else if (fb->width == 296 && fb->height == 128) {
+                            snprintf(line, sizeof(line), "Theme:      [Tri-Color BWR]");
+                        } else {
+                            snprintf(line, sizeof(line), "Theme:      %s", THEMES[app->theme_index].name);
+                        }
+                    }
 #if HAS_BLE_AUDIO
                     else if (idx == 5) snprintf(line, sizeof(line), "Output:     [%s]", (app->output_mode == OUTPUT_BLE_AUDIO) ? "BLE AUDIO" : "I2S DAC");
                     else if (idx == 6) snprintf(line, sizeof(line), "Visualizer: [%s]", app->vu_enabled ? "ON" : "OFF");
@@ -332,9 +378,10 @@ static void render_list(framebuffer_t *fb, const app_state_t *app) {
                     break;
             }
 
-            fb_draw_text_trunc(fb, 6, y + 1, line, (size_t)((fb->width - 12) / font_6x10.width), &font_6x10, is_selected);
+            size_t max_chars = (size_t)((fb->width - 12) / font_6x10.width);
+            fb_draw_text_trunc(fb, 6, y + 1, line, max_chars, &font_6x10, is_selected);
 
-            if (app->screen == SCREEN_SETTINGS) {
+            if (app->screen == SCREEN_SETTINGS && fb->width >= 200) {
                 if (idx == 2) {
                     draw_slider(fb, fb->width - 70, y + 2, 45, 6, app->volume, is_selected);
                 } else if (idx == 3) {
@@ -350,138 +397,211 @@ static void render_list(framebuffer_t *fb, const app_state_t *app) {
     render_mini_footer(fb, app);
 }
 
+static void draw_dithered_art_1bpp(framebuffer_t *fb, int16_t dst_x, int16_t dst_y, int16_t size,
+                                   const uint8_t *src_rgb565, uint8_t src_size) {
+    if (!fb || !src_rgb565 || size <= 0 || src_size == 0) return;
+
+    static const uint8_t bayer4x4[4][4] = {
+        {  0,  8,  2, 10 },
+        { 12,  4, 14,  6 },
+        {  3, 11,  1,  9 },
+        { 15,  7, 13,  5 }
+    };
+
+    for (int16_t dy = 0; dy < size; dy++) {
+        uint16_t sy = ((uint32_t)dy * (uint32_t)src_size) / (uint32_t)size;
+        for (int16_t dx = 0; dx < size; dx++) {
+            uint16_t sx = ((uint32_t)dx * (uint32_t)src_size) / (uint32_t)size;
+            size_t idx = ((size_t)sy * src_size + sx) * 2;
+            uint16_t c = (uint16_t)((src_rgb565[idx] << 8) | src_rgb565[idx + 1]);
+
+            // RGB565 -> Luminance (0..255)
+            uint8_t r = (uint8_t)(((c >> 11) & 0x1F) << 3);
+            uint8_t g = (uint8_t)(((c >> 5) & 0x3F) << 2);
+            uint8_t b = (uint8_t)((c & 0x1F) << 3);
+            uint8_t lum = (uint8_t)((r * 77 + g * 150 + b * 29) >> 8);
+
+            uint8_t threshold = (bayer4x4[dy & 3][dx & 3] * 16) + 8;
+            bool ink = (lum < threshold);
+
+            fb_set_pixel(fb, dst_x + dx, dst_y + dy, ink);
+        }
+    }
+}
+
 static void render_now_playing(framebuffer_t *fb, const app_state_t *app) {
     draw_topbar(fb, app);
 
     const track_t *cur = app_get_current_track(app);
     if (!cur) {
-        fb_draw_text(fb, 4, UI_BODY_TOP + 4, "No track playing", &font_6x10, false);
+        fb_draw_text(fb, 4, get_ui_body_top(fb) + 4, "No track playing", &font_6x10, false);
         return;
     }
 
-#if (LCD_WIDTH <= 128)
-    // Compact 128x64 OLED Layout
-    fb_draw_text_trunc(fb, 2, 13, cur->title, 20, &font_6x10, false);
-    fb_draw_text_trunc(fb, 2, 24, cur->artist, 20, &font_6x10, false);
+    if (fb->width <= 140 && fb->height <= 80) {
+        // Compact 128x64 OLED Layout (Pixel-perfect 64px bounds)
+        fb_draw_text_trunc(fb, 2, 10, cur->title, 20, &font_6x10, false);
+        fb_draw_text_trunc(fb, 2, 20, cur->artist, 20, &font_6x10, false);
 
-    // 8-Band Equalizer & Format Tag
-    draw_spectrum(fb, 2, 36, 12, app);
+        draw_spectrum(fb, 2, 30, 8, app);
 
-    char tags[32] = {0};
-    if (app->shuffle) strcat(tags, "S ");
-    if (app->repeat != REPEAT_OFF) strcat(tags, "R ");
-    if (app->format_badge[0] != '\0') {
-        strcat(tags, app->format_badge);
-    }
-    fb_draw_text_trunc(fb, 60, 36, tags, 11, &font_6x10, false);
+        char tags[32] = {0};
+        if (app->shuffle) strcat(tags, "S ");
+        if (app->repeat != REPEAT_OFF) strcat(tags, "R ");
+        if (app->format_badge[0] != '\0') {
+            strcat(tags, app->format_badge);
+        }
+        fb_draw_text_trunc(fb, 46, 30, tags, 13, &font_6x10, false);
 
-    // Mini Progress Bar & Time
-    int16_t by = fb->height - 13;
-    float frac = 0.0f;
-    if (cur->duration_secs > 0) {
-        frac = (float)(app->position_ms / 1000) / (float)cur->duration_secs;
-    }
-    draw_progress_bar(fb, 2, by, fb->width - 4, frac);
+        float frac = 0.0f;
+        if (cur->duration_secs > 0) {
+            frac = (float)(app->position_ms / 1000) / (float)cur->duration_secs;
+        }
+        draw_progress_bar(fb, 2, 40, fb->width - 4, frac);
 
-    char tline[32];
-    char pos_str[16], dur_str[16];
-    format_mmss(app->position_ms / 1000, pos_str, sizeof(pos_str));
-    format_mmss(cur->duration_secs, dur_str, sizeof(dur_str));
-    snprintf(tline, sizeof(tline), "%s %s/%s", state_glyph(app->state), pos_str, dur_str);
-    fb_draw_text(fb, 2, by + 5, tline, &font_6x10, false);
+        char tline[32];
+        char pos_str[16], dur_str[16];
+        format_mmss(app->position_ms / 1000, pos_str, sizeof(pos_str));
+        format_mmss(cur->duration_secs, dur_str, sizeof(dur_str));
+        snprintf(tline, sizeof(tline), "%s %s/%s", state_glyph(app->state), pos_str, dur_str);
+        fb_draw_text(fb, 2, 48, tline, &font_6x10, false);
 
-    char vol_str[16];
-    snprintf(vol_str, sizeof(vol_str), "v%u", app->volume);
-    int16_t vx = fb->width - (int16_t)strlen(vol_str) * font_6x10.width - 2;
-    fb_draw_text(fb, vx, by + 5, vol_str, &font_6x10, false);
-#else
-    // Wide / Full-Size Color & E-Ink Layout
-    int16_t ax = UI_ART_X;
-    int16_t ay = UI_ART_Y;
-    int16_t art_size = ART_BOX_PX;
+        char vol_str[16];
+        snprintf(vol_str, sizeof(vol_str), "v%u", app->volume);
+        int16_t vx = fb->width - (int16_t)strlen(vol_str) * font_6x10.width - 2;
+        fb_draw_text(fb, vx, 48, vol_str, &font_6x10, false);
+    } else if (fb->width <= 140 && fb->height > 80) {
+        // Square 128x128 OLED Layout (Pixel-perfect 128px bounds)
+        fb_draw_text_trunc(fb, 2, 14, cur->title, 20, &font_6x10, false);
+        fb_draw_text_trunc(fb, 2, 25, cur->artist, 20, &font_6x10, false);
+        fb_draw_text_trunc(fb, 2, 36, cur->album, 20, &font_6x10, false);
 
-    // Left Column 1: Album Art Box
-    if (app->art_valid && app->art_rgb565) {
-        fb_draw_rect(fb, ax, ay, art_size, art_size, true);
+        draw_spectrum(fb, 2, 48, 18, app);
+
+        char tags[32] = {0};
+        if (app->shuffle) strcat(tags, "S ");
+        if (app->repeat != REPEAT_OFF) strcat(tags, "R ");
+        if (app->format_badge[0] != '\0') {
+            strcat(tags, app->format_badge);
+        }
+        fb_draw_text(fb, 50, 48, tags, &font_6x10, false);
+
+        float frac = 0.0f;
+        if (cur->duration_secs > 0) {
+            frac = (float)(app->position_ms / 1000) / (float)cur->duration_secs;
+        }
+        draw_progress_bar(fb, 2, 70, fb->width - 4, frac);
+
+        char tline[32];
+        char pos_str[16], dur_str[16];
+        format_mmss(app->position_ms / 1000, pos_str, sizeof(pos_str));
+        format_mmss(cur->duration_secs, dur_str, sizeof(dur_str));
+        snprintf(tline, sizeof(tline), "%s %s/%s", state_glyph(app->state), pos_str, dur_str);
+        fb_draw_text(fb, 2, 78, tline, &font_6x10, false);
+
+        char vol_str[16];
+        snprintf(vol_str, sizeof(vol_str), "v%u", app->volume);
+        int16_t vx = fb->width - (int16_t)strlen(vol_str) * font_6x10.width - 2;
+        fb_draw_text(fb, vx, 78, vol_str, &font_6x10, false);
+
+        // Upcoming track hint
+        uint16_t upcoming[1];
+        if (app_get_upcoming(app, upcoming, 1) > 0 && upcoming[0] < app->queue_len) {
+            char next_str[64];
+            snprintf(next_str, sizeof(next_str), "> %s", app->queue[upcoming[0]].title);
+            fb_draw_text_trunc(fb, 2, 94, next_str, 20, &font_6x10, false);
+        }
     } else {
-        fb_draw_rect(fb, ax, ay, art_size, art_size, true);
-        fb_draw_rect(fb, ax + 2, ay + 2, art_size - 4, art_size - 4, true);
-        const char *g = state_glyph(app->state);
-        int16_t gw = (int16_t)strlen(g) * font_8x13_bold.width;
-        fb_draw_text(fb, ax + (art_size - gw) / 2, ay + (art_size - font_8x13_bold.height) / 2, g, &font_8x13_bold, false);
-    }
+        // Wide / Full-Size Color & E-Ink Layout (320x170, 320x240, 400x240, 480x272, 296x128)
+        int16_t ax = 4;
+        int16_t ay = get_ui_body_top(fb) + 2;
+        int16_t art_size = (fb->height <= 130) ? 48 : ((fb->height <= 180) ? 56 : 80);
 
-    // Left Column 2: 8-Band Segmented VU Spectrum Analyzer
-    int16_t by = fb->height - 22;
-    int16_t vu_y = ay + art_size + 6;
-    int16_t vu_max_h = by - vu_y - 4;
-    if (vu_max_h > 46) vu_max_h = 46;
-    if (vu_max_h >= 12) {
-        draw_spectrum(fb, ax + 1, vu_y, vu_max_h, app);
-    }
+        if (app->art_valid && app->art_rgb565) {
+            fb_draw_rect(fb, ax, ay, art_size, art_size, true);
+#if defined(TARGET_SIMULATOR)
+            if (!hal_sim_display_is_color()) {
+                draw_dithered_art_1bpp(fb, ax + 1, ay + 1, art_size - 2, app->art_rgb565, app->art_size ? app->art_size : 80);
+            }
+#elif !COLOR_DISPLAY
+            draw_dithered_art_1bpp(fb, ax + 1, ay + 1, art_size - 2, app->art_rgb565, app->art_size ? app->art_size : 80);
+#endif
+        } else {
+            fb_draw_rect(fb, ax, ay, art_size, art_size, true);
+            fb_draw_rect(fb, ax + 2, ay + 2, art_size - 4, art_size - 4, true);
+            const char *g = state_glyph(app->state);
+            int16_t gw = (int16_t)strlen(g) * font_8x13_bold.width;
+            fb_draw_text(fb, ax + (art_size - gw) / 2, ay + (art_size - font_8x13_bold.height) / 2, g, &font_8x13_bold, false);
+        }
 
-    // Right Column 1: Metadata
-    int16_t tx = ax + art_size + 8;
-    size_t cap = (size_t)((fb->width - tx - 4) / font_6x10.width);
+        int16_t by = fb->height - 24;
+        int16_t vu_y = ay + art_size + 6;
+        int16_t vu_max_h = by - vu_y - 4;
+        if (vu_max_h > 46) vu_max_h = 46;
+        if (vu_max_h >= 12) {
+            draw_spectrum(fb, ax + 1, vu_y, vu_max_h, app);
+        }
 
-    fb_draw_text_trunc(fb, tx, ay, cur->title, cap, &font_8x13_bold, false);
-    fb_draw_text_trunc(fb, tx, ay + 15, cur->artist, cap, &font_6x10, false);
-    fb_draw_text_trunc(fb, tx, ay + 27, cur->album, cap, &font_6x10, false);
+        int16_t tx = ax + art_size + 8;
+        size_t cap = (size_t)((fb->width - tx - 4) / font_6x10.width);
 
-    char tags[64] = {0};
-    if (app->shuffle) strcat(tags, "SHUF ");
-    char rpt[16];
-    snprintf(rpt, sizeof(rpt), "RPT:%s ", repeat_str(app->repeat));
-    strcat(tags, rpt);
-    if (app->format_badge[0] != '\0') {
-        strcat(tags, app->format_badge);
-    }
-    fb_draw_text(fb, tx, ay + 39, tags, &font_6x10, false);
+        fb_draw_text_trunc(fb, tx, ay, cur->title, cap, &font_8x13_bold, false);
+        fb_draw_text_trunc(fb, tx, ay + 15, cur->artist, cap, &font_6x10, false);
+        fb_draw_text_trunc(fb, tx, ay + 27, cur->album, cap, &font_6x10, false);
 
-    // Right Column 2: UP NEXT Queue List
-    int16_t q_top = ay + 54;
-    int16_t q_avail = by - 2 - q_top;
-    int16_t rows = q_avail / 12;
+        char tags[64] = {0};
+        if (app->shuffle) strcat(tags, "SHUF ");
+        char rpt[16];
+        snprintf(rpt, sizeof(rpt), "RPT:%s ", repeat_str(app->repeat));
+        strcat(tags, rpt);
+        if (app->format_badge[0] != '\0') {
+            strcat(tags, app->format_badge);
+        }
+        fb_draw_text(fb, tx, ay + 39, tags, &font_6x10, false);
 
-    if (rows > 0) {
-        uint16_t upcoming[5];
-        size_t up_count = app_get_upcoming(app, upcoming, rows > 5 ? 5 : (size_t)rows);
-        if (up_count > 0) {
-            fb_draw_text(fb, tx, q_top, "UP NEXT:", &font_6x10, false);
-            for (size_t k = 0; k < up_count; k++) {
-                char row_str[96];
-                uint16_t trk_idx = upcoming[k];
-                if (trk_idx < app->queue_len) {
-                    snprintf(row_str, sizeof(row_str), "%u. %s", (unsigned)(k + 1), app->queue[trk_idx].title);
-                    fb_draw_text_trunc(fb, tx, q_top + 10 + (int16_t)k * 11, row_str, cap, &font_6x10, false);
+        int16_t q_top = ay + 54;
+        int16_t q_avail = by - 2 - q_top;
+        int16_t rows = q_avail / 12;
+
+        if (rows > 0) {
+            uint16_t upcoming[5];
+            size_t up_count = app_get_upcoming(app, upcoming, rows > 5 ? 5 : (size_t)rows);
+            if (up_count > 0) {
+                fb_draw_text(fb, tx, q_top, "UP NEXT:", &font_6x10, false);
+                for (size_t k = 0; k < up_count; k++) {
+                    char row_str[96];
+                    uint16_t trk_idx = upcoming[k];
+                    if (trk_idx < app->queue_len) {
+                        snprintf(row_str, sizeof(row_str), "%u. %s", (unsigned)(k + 1), app->queue[trk_idx].title);
+                        fb_draw_text_trunc(fb, tx, q_top + 10 + (int16_t)k * 11, row_str, cap, &font_6x10, false);
+                    }
                 }
             }
         }
+
+        float frac = 0.0f;
+        if (cur->duration_secs > 0) {
+            frac = (float)(app->position_ms / 1000) / (float)cur->duration_secs;
+        }
+        draw_progress_bar(fb, 4, by, fb->width - 8, frac);
+
+        char tline[32];
+        char pos_str[16], dur_str[16];
+        format_mmss(app->position_ms / 1000, pos_str, sizeof(pos_str));
+        format_mmss(cur->duration_secs, dur_str, sizeof(dur_str));
+        snprintf(tline, sizeof(tline), "%s/%s", pos_str, dur_str);
+        fb_draw_text(fb, 4, by + 8, tline, &font_6x10, false);
+
+        char vol_str[16];
+        snprintf(vol_str, sizeof(vol_str), "vol %u", app->volume);
+        int16_t vx = fb->width - (int16_t)strlen(vol_str) * font_6x10.width - 2;
+        fb_draw_text(fb, vx, by + 8, vol_str, &font_6x10, false);
     }
-
-    // Bottom Transport & Progress Bar
-    float frac = 0.0f;
-    if (cur->duration_secs > 0) {
-        frac = (float)(app->position_ms / 1000) / (float)cur->duration_secs;
-    }
-    draw_progress_bar(fb, 4, by, fb->width - 8, frac);
-
-    char tline[32];
-    char pos_str[16], dur_str[16];
-    format_mmss(app->position_ms / 1000, pos_str, sizeof(pos_str));
-    format_mmss(cur->duration_secs, dur_str, sizeof(dur_str));
-    snprintf(tline, sizeof(tline), "%s/%s", pos_str, dur_str);
-    fb_draw_text(fb, 4, by + 7, tline, &font_6x10, false);
-
-    char vol_str[16];
-    snprintf(vol_str, sizeof(vol_str), "vol %u", app->volume);
-    int16_t vx = fb->width - (int16_t)strlen(vol_str) * font_6x10.width - 2;
-    fb_draw_text(fb, vx, by + 7, vol_str, &font_6x10, false);
-#endif
 }
 
 static void render_mini_footer(framebuffer_t *fb, const app_state_t *app) {
-    fb_draw_line(fb, 0, UI_FOOTER_Y, fb->width, UI_FOOTER_Y, true);
+    int16_t footer_y = get_ui_footer_y(fb);
+    fb_draw_line(fb, 0, footer_y, fb->width, footer_y, true);
 
     const track_t *now = app_get_current_track(app);
     const char *title = now ? now->title : "--";
@@ -489,7 +609,7 @@ static void render_mini_footer(framebuffer_t *fb, const app_state_t *app) {
 
     char l1[96];
     snprintf(l1, sizeof(l1), "%s %s", state_glyph(app->state), title);
-    fb_draw_text_trunc(fb, 2, UI_FOOTER_Y + 3, l1, 24, &font_6x10, false);
+    fb_draw_text_trunc(fb, 2, footer_y + 3, l1, (size_t)((fb->width - 32) / font_6x10.width), &font_6x10, false);
 
     char st[16] = {0};
     if (app->shuffle) strcat(st, "S");
@@ -500,21 +620,28 @@ static void render_mini_footer(framebuffer_t *fb, const app_state_t *app) {
     }
     if (st[0] != '\0') {
         int16_t sx = fb->width - (int16_t)strlen(st) * font_6x10.width - 2;
-        fb_draw_text(fb, sx, UI_FOOTER_Y + 3, st, &font_6x10, false);
+        fb_draw_text(fb, sx, footer_y + 3, st, &font_6x10, false);
     }
 
-    int16_t by = fb->height - 7;
-    float frac = 0.0f;
-    if (dur_secs > 0) {
-        frac = (float)(app->position_ms / 1000) / (float)dur_secs;
-    }
-    draw_progress_bar(fb, 2, by, fb->width - 64, frac);
+    if (fb->height > 64) {
+        int16_t by = fb->height - 7;
+        float frac = 0.0f;
+        if (dur_secs > 0) {
+            frac = (float)(app->position_ms / 1000) / (float)dur_secs;
+        }
 
-    char t_str[32];
-    char p_str[16], d_str[16];
-    format_mmss(app->position_ms / 1000, p_str, sizeof(p_str));
-    format_mmss(dur_secs, d_str, sizeof(d_str));
-    snprintf(t_str, sizeof(t_str), "%s/%s", p_str, d_str);
-    int16_t tx = fb->width - (int16_t)strlen(t_str) * font_6x10.width - 2;
-    fb_draw_text(fb, tx, by - 1, t_str, &font_6x10, false);
+        char t_str[32];
+        char p_str[16], d_str[16];
+        format_mmss(app->position_ms / 1000, p_str, sizeof(p_str));
+        format_mmss(dur_secs, d_str, sizeof(d_str));
+        snprintf(t_str, sizeof(t_str), "%s/%s", p_str, d_str);
+        int16_t tw = (int16_t)strlen(t_str) * font_6x10.width;
+        int16_t tx = fb->width - tw - 2;
+
+        int16_t pbar_w = tx - 8;
+        if (pbar_w > 10) {
+            draw_progress_bar(fb, 2, by, pbar_w, frac);
+        }
+        fb_draw_text(fb, tx, by - 2, t_str, &font_6x10, false);
+    }
 }

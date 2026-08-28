@@ -8,6 +8,22 @@
 extern "C" {
 #endif
 
+#define MAX_LCD_WIDTH       480
+#define MAX_LCD_HEIGHT      272
+#define MAX_LCD_ROW_BYTES   ((MAX_LCD_WIDTH + 7) / 8)
+#define MAX_LCD_FRAME_BYTES (MAX_LCD_ROW_BYTES * MAX_LCD_HEIGHT)
+
+typedef enum {
+    DISP_PROFILE_STM32F7_480X272 = 0,
+    DISP_PROFILE_ILI9341_320X240,
+    DISP_PROFILE_TDISPLAY_320X170,
+    DISP_PROFILE_OLED_128X64,
+    DISP_PROFILE_OLED_128X128,
+    DISP_PROFILE_SHARP_400X240,
+    DISP_PROFILE_EPAPER_BWR_296X128,
+    DISP_PROFILE_COUNT
+} disp_profile_t;
+
 #if defined(TARGET_OLED_I2C) || defined(DISPLAY_OLED_I2C) || defined(DISPLAY_SSD1306)
     #define LCD_WIDTH       128
     #define LCD_HEIGHT      64
@@ -33,11 +49,16 @@ extern "C" {
     #define LCD_HEIGHT      240
     #define COLOR_DISPLAY   1
     #define ART_BOX_PX      80
-#else
+#elif defined(TARGET_ESP32S3) || defined(TARGET_TDISPLAY)
     #define LCD_WIDTH       320
     #define LCD_HEIGHT      170
     #define COLOR_DISPLAY   1
     #define ART_BOX_PX      56
+#else
+    #define LCD_WIDTH       320
+    #define LCD_HEIGHT      240
+    #define COLOR_DISPLAY   1
+    #define ART_BOX_PX      80
 #endif
 
 #define LCD_ROW_BYTES_1BPP  ((LCD_WIDTH + 7) / 8)
