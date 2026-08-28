@@ -7,8 +7,8 @@
 #include <stdbool.h>
 
 /* ==============================================================================
- * Display Pin Mappings (from working Helios driver for mikromedia Plus STM32F7)
- * Data bus (16-bit parallel):
+ * Display Pin Mappings (mikromedia Plus STM32F7 - 16-bit Parallel)
+ * Data bus:
  *   D0-D7:  GPIOG[0:7]
  *   D8-D15: GPIOE[8:15]
  * Control pins (GPIOF):
@@ -38,7 +38,7 @@
 #define TFT_RS_PIN          GPIO_PIN_15
 #define TFT_RS_PORT         GPIOF
 
-/* Control pin macros for fast GPIO access */
+/* Control pin macros using atomic BSRR register */
 #define TFT_CS_LOW()        (TFT_CS_PORT->BSRR = (uint32_t)TFT_CS_PIN << 16)
 #define TFT_CS_HIGH()       (TFT_CS_PORT->BSRR = TFT_CS_PIN)
 #define TFT_RS_LOW()        (TFT_RS_PORT->BSRR = (uint32_t)TFT_RS_PIN << 16)
@@ -65,7 +65,13 @@ static inline void TFT_WRITE_BUS(uint16_t data) {
     TFT_DATA_LO_PORT->ODR = temp | (data & 0x00FF);
 }
 
-#define TFT_WR_STROBE() do { TFT_WR_LOW(); __NOP(); TFT_WR_HIGH(); } while(0)
+/* Safe strobe timing for 216 MHz Cortex-M7 (min 20ns pulse width) */
+#define TFT_WR_STROBE() do { \
+    TFT_WR_LOW(); \
+    __asm volatile("nop; nop; nop; nop; nop"); \
+    TFT_WR_HIGH(); \
+    __asm volatile("nop; nop; nop; nop; nop"); \
+} while(0)
 
 #define SSD1963_SOFT_RESET          0x01
 #define SSD1963_SET_PLL             0xE0
@@ -109,13 +115,6 @@ static void SSD1963_WriteData(uint8_t data) {
     TFT_CS_HIGH();
 }
 
-static void SSD1963_WriteData16(uint16_t data) {
-    TFT_CS_LOW(); TFT_RS_HIGH();
-    TFT_WRITE_BUS(data);
-    TFT_WR_STROBE();
-    TFT_CS_HIGH();
-}
-
 static void SSD1963_SetWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
     SSD1963_WriteCommand(SSD1963_SET_COLUMN_ADDRESS);
     SSD1963_WriteData(x0 >> 8); SSD1963_WriteData(x0 & 0xFF);
@@ -126,76 +125,102 @@ static void SSD1963_SetWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1
     SSD1963_WriteCommand(SSD1963_WRITE_MEMORY_START);
 }
 
+static void SSD1963_FillRect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color) {
+    if (x >= LCD_WIDTH || y >= LCD_HEIGHT) return;
+    if ((x + w) > LCD_WIDTH) w = LCD_WIDTH - x;
+    if ((y + h) > LCD_HEIGHT) h = LCD_HEIGHT - y;
+
+    SSD1963_SetWindow(x, y, x + w - 1, y + h - 1);
+    uint32_t pixels = (uint32_t)w * (uint32_t)h;
+
+    TFT_CS_LOW(); TFT_RS_HIGH();
+    TFT_WRITE_BUS(color);
+    while (pixels--) {
+        TFT_WR_STROBE();
+    }
+    TFT_CS_HIGH();
+}
+
+void hal_display_set_brightness(uint8_t pct) {
+    s_brightness = (pct > 100) ? 100 : pct;
+    uint8_t pwm = (s_brightness * 255) / 100;
+    SSD1963_WriteCommand(SSD1963_SET_PWM_CONF);
+    SSD1963_WriteData(0x06); SSD1963_WriteData(pwm); SSD1963_WriteData(0x01);
+    SSD1963_WriteData(0x00); SSD1963_WriteData(0x00); SSD1963_WriteData(0x00);
+
+    if (s_brightness > 0) {
+        TFT_BLED_ON();
+    } else {
+        TFT_BLED_OFF();
+    }
+}
+
 int hal_display_init(void) {
-    /* 1. Turn on backlight first */
+    /* 1. Turn on backlight line */
     TFT_BLED_ON();
     TFT_RD_HIGH();
     TFT_CS_HIGH();
     TFT_WR_HIGH();
-    
+
     /* 2. Hardware reset */
     SSD1963_Reset();
-    
+
     SSD1963_WriteCommand(SSD1963_SOFT_RESET); HAL_Delay(10);
-    
+
     /* 3. Set PLL */
     SSD1963_WriteCommand(SSD1963_SET_PLL_MN);
     SSD1963_WriteData(0x23); SSD1963_WriteData(0x02); SSD1963_WriteData(0x04);
     SSD1963_WriteCommand(SSD1963_SET_PLL); SSD1963_WriteData(0x01); HAL_Delay(1);
     SSD1963_WriteCommand(SSD1963_SET_PLL); SSD1963_WriteData(0x03); HAL_Delay(5);
     SSD1963_WriteCommand(SSD1963_SOFT_RESET); HAL_Delay(10);
-    
+
     /* 4. Pixel clock */
     SSD1963_WriteCommand(SSD1963_SET_LSHIFT_FREQ);
     SSD1963_WriteData(0x01); SSD1963_WriteData(0x33); SSD1963_WriteData(0x33);
-    
+
     /* 5. LCD mode 480x272 */
     SSD1963_WriteCommand(SSD1963_SET_LCD_MODE);
     SSD1963_WriteData(0x20); SSD1963_WriteData(0x00);
     SSD1963_WriteData((LCD_WIDTH - 1) >> 8); SSD1963_WriteData((LCD_WIDTH - 1) & 0xFF);
     SSD1963_WriteData((LCD_HEIGHT - 1) >> 8); SSD1963_WriteData((LCD_HEIGHT - 1) & 0xFF);
     SSD1963_WriteData(0x00);
-    
+
     /* 6. Horizontal period */
     SSD1963_WriteCommand(SSD1963_SET_HORI_PERIOD);
     SSD1963_WriteData(0x02); SSD1963_WriteData(0x0D); SSD1963_WriteData(0x00);
     SSD1963_WriteData(0x2B); SSD1963_WriteData(0x08); SSD1963_WriteData(0x00);
     SSD1963_WriteData(0x00); SSD1963_WriteData(0x00);
-    
+
     /* 7. Vertical period */
     SSD1963_WriteCommand(SSD1963_SET_VERT_PERIOD);
     SSD1963_WriteData(0x01); SSD1963_WriteData(0x1E); SSD1963_WriteData(0x00);
     SSD1963_WriteData(0x0C); SSD1963_WriteData(0x0A); SSD1963_WriteData(0x00);
     SSD1963_WriteData(0x00);
-    
+
     SSD1963_WriteCommand(SSD1963_SET_ADDRESS_MODE); SSD1963_WriteData(0x00); /* RGB */
     SSD1963_WriteCommand(SSD1963_SET_PIXEL_FORMAT); SSD1963_WriteData(0x55); /* 16-bit 565 */
-    
+
     /* Pixel Data Interface: 16-bit 565 format */
     SSD1963_WriteCommand(0xF0); SSD1963_WriteData(0x03);
-    
-    /* PWM backlight via SSD1963 */
+
+    /* PWM backlight configuration */
     SSD1963_WriteCommand(SSD1963_SET_GPIO_CONF);
     SSD1963_WriteData(0x0F); SSD1963_WriteData(0x01);
     SSD1963_WriteCommand(SSD1963_SET_PWM_CONF);
     SSD1963_WriteData(0x06); SSD1963_WriteData(0xFF); SSD1963_WriteData(0x01);
     SSD1963_WriteData(0x00); SSD1963_WriteData(0x00); SSD1963_WriteData(0x00);
-    
+
     SSD1963_WriteCommand(SSD1963_EXIT_SLEEP_MODE); HAL_Delay(120);
     SSD1963_WriteCommand(SSD1963_SET_DISPLAY_ON); HAL_Delay(25);
-    
+
+    hal_display_set_brightness(100);
     hal_display_clear();
+
     return 0;
 }
 
 void hal_display_clear(void) {
-    SSD1963_SetWindow(0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
-    TFT_CS_LOW(); TFT_RS_HIGH();
-    for (uint32_t i = 0; i < (uint32_t)(LCD_WIDTH * LCD_HEIGHT); i++) {
-        TFT_WRITE_BUS(s_bg);
-        TFT_WR_STROBE();
-    }
-    TFT_CS_HIGH();
+    SSD1963_FillRect(0, 0, LCD_WIDTH, LCD_HEIGHT, s_bg);
 }
 
 void hal_display_flush(const uint8_t *mono_fb) {
@@ -208,8 +233,8 @@ void hal_display_flush(const uint8_t *mono_fb) {
     for (uint16_t y = 0; y < LCD_HEIGHT; y++) {
         const uint8_t *row = &mono_fb[y * row_bytes];
         for (uint16_t x = 0; x < LCD_WIDTH; x++) {
-            bool pixel = (row[x >> 3] & (0x80 >> (x & 7))) != 0;
-            TFT_WRITE_BUS(pixel ? s_fg : s_bg);
+            int bit = (row[x >> 3] >> (7 - (x & 7))) & 1;
+            TFT_WRITE_BUS(bit ? s_bg : s_fg);
             TFT_WR_STROBE();
         }
     }
@@ -229,8 +254,8 @@ void hal_display_flush_region(const uint8_t *mono_fb, uint16_t x, uint16_t y, ui
         const uint8_t *row = &mono_fb[(y + r) * row_bytes];
         for (uint16_t c = 0; c < w; c++) {
             uint16_t px = x + c;
-            bool pixel = (row[px >> 3] & (0x80 >> (px & 7))) != 0;
-            TFT_WRITE_BUS(pixel ? s_fg : s_bg);
+            int bit = (row[px >> 3] >> (7 - (px & 7))) & 1;
+            TFT_WRITE_BUS(bit ? s_bg : s_fg);
             TFT_WR_STROBE();
         }
     }
@@ -255,15 +280,6 @@ void hal_display_blit_rgb565(uint16_t x, uint16_t y, uint16_t w, uint16_t h, con
 }
 
 void hal_display_present(void) {
-}
-
-void hal_display_set_brightness(uint8_t pct) {
-    s_brightness = (pct > 100) ? 100 : pct;
-    if (s_brightness > 0) {
-        TFT_BLED_ON();
-    } else {
-        TFT_BLED_OFF();
-    }
 }
 
 void hal_display_set_theme(uint16_t fg, uint16_t bg) {
