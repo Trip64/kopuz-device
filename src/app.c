@@ -7,7 +7,7 @@
 #include <string.h>
 
 const char *MENU_ITEMS[5] = {"Now Playing", "Songs", "Albums", "Artists", "Settings"};
-const char *SETTINGS_ITEMS[6] = {"Shuffle", "Repeat", "Volume", "Brightness", "Theme", "Output"};
+const char *SETTINGS_ITEMS[7] = {"Shuffle", "Repeat", "Volume", "Brightness", "Theme", "Output", "Visualizer"};
 
 static void shuffle_keep_first(uint16_t *order, uint16_t n, uint16_t chosen_pos) {
     if (n <= 1) return;
@@ -51,6 +51,7 @@ void app_init(app_state_t *app) {
     app->brightness = 100;
     app->theme_index = 0;
     app->battery_mv = -1;
+    app->vu_enabled = true;
     app->dirty = true;
 
     // Allocate album art box buffer (RGB565)
@@ -91,7 +92,7 @@ uint16_t app_get_list_len(const app_state_t *app) {
             return (app->open_group < app->albums_len) ? app->albums[app->open_group].count : 0;
         case SCREEN_ARTIST_TRACKS:
             return (app->open_group < app->artists_len) ? app->artists[app->open_group].count : 0;
-        case SCREEN_SETTINGS:     return 5;
+        case SCREEN_SETTINGS:     return (uint16_t)(sizeof(SETTINGS_ITEMS) / sizeof(SETTINGS_ITEMS[0]));
         case SCREEN_BSOD:         return 0;
     }
     return 0;
@@ -264,6 +265,9 @@ static void toggle_setting(app_state_t *app) {
             break;
         case 5: // Output mode
             app->output_mode = (app->output_mode == OUTPUT_I2S_DAC) ? OUTPUT_BLE_AUDIO : OUTPUT_I2S_DAC;
+            break;
+        case 6: // Visualizer
+            app->vu_enabled = !app->vu_enabled;
             break;
     }
 }

@@ -168,23 +168,23 @@ void audio_player_process(void) {
             count++;
         }
 
-        if (count > 0) {
-            static const uint32_t scale[8] = {1400, 1600, 2000, 2400, 2800, 3200, 3800, 4400};
+        if (count > 0 && s_app->vu_enabled) {
+            uint32_t max_e = 100;
             for (int b = 0; b < 8; b++) {
                 uint32_t avg = band_acc[b] / (uint32_t)count;
-                uint8_t lvl = (uint8_t)((avg * 16) / scale[b]);
-                if (lvl > 16) lvl = 16;
+                if (avg > max_e) max_e = avg;
+            }
+            if (max_e < 600) max_e = 600;
 
-                if (lvl >= s_app->vu_meter[b]) {
-                    s_app->vu_meter[b] = lvl;
-                } else if (s_app->vu_meter[b] > 0) {
-                    s_app->vu_meter[b]--;
-                }
+            for (int b = 0; b < 8; b++) {
+                uint32_t avg = band_acc[b] / (uint32_t)count;
+                uint8_t lvl = (uint8_t)((avg * 24) / max_e);
+                if (lvl > 24) lvl = 24;
+                if (lvl < 2) lvl = 2;
 
-                if (lvl >= s_app->vu_peak[b]) {
+                s_app->vu_meter[b] = lvl;
+                if (lvl > s_app->vu_peak[b]) {
                     s_app->vu_peak[b] = lvl;
-                } else if (s_app->vu_peak[b] > 0) {
-                    s_app->vu_peak[b]--;
                 }
             }
         }
@@ -207,6 +207,27 @@ void audio_player_process(void) {
             s_decoder = NULL;
         }
         app_trigger_bsod(s_app, "ERR_STREAM_DECODE_FAILED", "Corrupt audio stream");
+    }
+}
+
+void audio_player_tick_vu(void) {
+    if (!s_app || !s_app->vu_enabled) return;
+
+    for (int b = 0; b < 8; b++) {
+        if (s_app->state != PLAYBACK_PLAYING) {
+            if (s_app->vu_meter[b] > 0) s_app->vu_meter[b]--;
+            if (s_app->vu_peak[b] > 0) s_app->vu_peak[b]--;
+        } else {
+            if (s_app->vu_meter[b] > 2) {
+                s_app->vu_meter[b] -= 2;
+            } else if (s_app->vu_meter[b] > 0) {
+                s_app->vu_meter[b]--;
+            }
+
+            if (s_app->vu_peak[b] > s_app->vu_meter[b]) {
+                s_app->vu_peak[b]--;
+            }
+        }
     }
 }
 

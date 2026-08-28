@@ -205,29 +205,31 @@ static void draw_progress_bar(framebuffer_t *fb, int16_t x, int16_t y, int16_t w
     }
 }
 
-static void draw_spectrum(framebuffer_t *fb, int16_t x, int16_t y, const app_state_t *app) {
-    if (!fb || !app) return;
-    int16_t bar_w = 4;
+static void draw_spectrum(framebuffer_t *fb, int16_t x, int16_t y, int16_t max_h, const app_state_t *app) {
+    if (!fb || !app || !app->vu_enabled) return;
+    int16_t bar_w = 5;
     int16_t gap = 2;
-    int16_t max_h = 16;
 
     for (int b = 0; b < 8; b++) {
         int16_t bx = x + b * (bar_w + gap);
-        uint8_t lvl = app->vu_meter[b];
-        if (lvl > max_h) lvl = max_h;
+        uint8_t lvl = (uint8_t)(((uint32_t)app->vu_meter[b] * (uint32_t)max_h) / 24);
+        if (lvl > max_h) lvl = (uint8_t)max_h;
 
-        // Segmented LED blocks (2px block, 1px gap)
-        for (int16_t h = 2; h <= lvl; h += 3) {
-            fb_fill_rect(fb, bx, y + (max_h - h), bar_w, 2, true);
+        // Continuous baseline bar
+        fb_draw_line(fb, bx, y + max_h, bx + bar_w - 1, y + max_h, true);
+
+        // Segmented LED blocks (3px block, 1px dark gap)
+        if (lvl > 0) {
+            for (int16_t h = 2; h <= lvl; h += 3) {
+                fb_fill_rect(fb, bx, y + (max_h - h), bar_w, 2, true);
+            }
         }
 
-        // Peak hold floating indicator
-        uint8_t pk = app->vu_peak[b];
-        if (pk > max_h) pk = max_h;
+        // Floating peak indicator
+        uint8_t pk = (uint8_t)(((uint32_t)app->vu_peak[b] * (uint32_t)max_h) / 24);
+        if (pk > max_h) pk = (uint8_t)max_h;
         if (pk > 1) {
             fb_draw_line(fb, bx, y + (max_h - pk), bx + bar_w - 1, y + (max_h - pk), true);
-        } else {
-            fb_set_pixel(fb, bx + 1, y + max_h - 1, true);
         }
     }
 }
@@ -281,12 +283,13 @@ static void render_list(framebuffer_t *fb, const app_state_t *app) {
                     break;
                 }
                 case SCREEN_SETTINGS:
-                    if (idx == 0) snprintf(line, sizeof(line), "Shuffle: [%s]", app->shuffle ? "ON" : "OFF");
-                    else if (idx == 1) snprintf(line, sizeof(line), "Repeat:  [%s]", repeat_str(app->repeat));
-                    else if (idx == 2) snprintf(line, sizeof(line), "Volume:     %u%%", app->volume);
-                    else if (idx == 3) snprintf(line, sizeof(line), "Brightness: %u%%", app->brightness);
-                    else if (idx == 4) snprintf(line, sizeof(line), "Theme:   %s", THEMES[app->theme_index].name);
-                    else if (idx == 5) snprintf(line, sizeof(line), "Output:  [%s]", (app->output_mode == OUTPUT_BLE_AUDIO) ? "BLE AUDIO" : "I2S DAC");
+                    if (idx == 0) snprintf(line, sizeof(line), "Shuffle:    [%s]", app->shuffle ? "ON" : "OFF");
+                    else if (idx == 1) snprintf(line, sizeof(line), "Repeat:     [%s]", repeat_str(app->repeat));
+                    else if (idx == 2) snprintf(line, sizeof(line), "Volume:        %u%%", app->volume);
+                    else if (idx == 3) snprintf(line, sizeof(line), "Brightness:    %u%%", app->brightness);
+                    else if (idx == 4) snprintf(line, sizeof(line), "Theme:      %s", THEMES[app->theme_index].name);
+                    else if (idx == 5) snprintf(line, sizeof(line), "Output:     [%s]", (app->output_mode == OUTPUT_BLE_AUDIO) ? "BLE AUDIO" : "I2S DAC");
+                    else if (idx == 6) snprintf(line, sizeof(line), "Visualizer: [%s]", app->vu_enabled ? "ON" : "OFF");
                     break;
                 case SCREEN_SONGS: {
                     const char *m = " ";
@@ -357,6 +360,7 @@ static void render_now_playing(framebuffer_t *fb, const app_state_t *app) {
     int16_t ay = UI_ART_Y;
     int16_t art_size = ART_BOX_PX;
 
+    // Left Column 1: Album Art Box
     if (app->art_valid && app->art_rgb565) {
         fb_draw_rect(fb, ax, ay, art_size, art_size, true);
     } else {
@@ -367,6 +371,16 @@ static void render_now_playing(framebuffer_t *fb, const app_state_t *app) {
         fb_draw_text(fb, ax + (art_size - gw) / 2, ay + (art_size - font_8x13_bold.height) / 2, g, &font_8x13_bold, false);
     }
 
+    // Left Column 2: 8-Band Segmented VU Spectrum Analyzer
+    int16_t by = fb->height - 22;
+    int16_t vu_y = ay + art_size + 6;
+    int16_t vu_max_h = by - vu_y - 4;
+    if (vu_max_h > 46) vu_max_h = 46;
+    if (vu_max_h >= 12) {
+        draw_spectrum(fb, ax + 1, vu_y, vu_max_h, app);
+    }
+
+    // Right Column 1: Metadata
     int16_t tx = ax + art_size + 8;
     size_t cap = (size_t)((fb->width - tx - 4) / font_6x10.width);
 
@@ -384,30 +398,28 @@ static void render_now_playing(framebuffer_t *fb, const app_state_t *app) {
     }
     fb_draw_text(fb, tx, ay + 39, tags, &font_6x10, false);
 
-    // 8-Band Hi-Fi Segmented Audio Spectrum Visualizer
-    draw_spectrum(fb, fb->width - 52, ay + 22, app);
-
-    int16_t by = fb->height - 22;
-    int16_t q_top = (ay + art_size + 4) > (ay + 52) ? (ay + art_size + 4) : (ay + 52);
-    int16_t avail_h = by - 2 - (q_top + 10);
-    int16_t rows = avail_h / 11;
+    // Right Column 2: UP NEXT Queue List
+    int16_t q_top = ay + 54;
+    int16_t q_avail = by - 2 - q_top;
+    int16_t rows = q_avail / 12;
 
     if (rows > 0) {
-        uint16_t upcoming[6];
-        size_t up_count = app_get_upcoming(app, upcoming, rows > 6 ? 6 : (size_t)rows);
+        uint16_t upcoming[5];
+        size_t up_count = app_get_upcoming(app, upcoming, rows > 5 ? 5 : (size_t)rows);
         if (up_count > 0) {
-            fb_draw_text(fb, 4, q_top, "UP NEXT", &font_6x10, false);
+            fb_draw_text(fb, tx, q_top, "UP NEXT:", &font_6x10, false);
             for (size_t k = 0; k < up_count; k++) {
                 char row_str[96];
                 uint16_t trk_idx = upcoming[k];
                 if (trk_idx < app->queue_len) {
                     snprintf(row_str, sizeof(row_str), "%u. %s", (unsigned)(k + 1), app->queue[trk_idx].title);
-                    fb_draw_text_trunc(fb, 4, q_top + 10 + (int16_t)k * 10, row_str, (size_t)(fb->width / font_6x10.width - 1), &font_6x10, false);
+                    fb_draw_text_trunc(fb, tx, q_top + 10 + (int16_t)k * 11, row_str, cap, &font_6x10, false);
                 }
             }
         }
     }
 
+    // Bottom Transport & Progress Bar
     float frac = 0.0f;
     if (cur->duration_secs > 0) {
         frac = (float)(app->position_ms / 1000) / (float)cur->duration_secs;

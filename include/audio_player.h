@@ -20,6 +20,9 @@ void audio_player_process(void);
 // Seek to position in current track
 bool audio_player_seek(uint32_t target_sec);
 
+// Update/decay VU meter animation (call once per UI frame ~30 FPS)
+void audio_player_tick_vu(void);
+
 // Stop and deinitialize
 void audio_player_close(void);
 

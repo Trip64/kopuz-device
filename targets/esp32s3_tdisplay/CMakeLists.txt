@@ -3,6 +3,7 @@ idf_component_register(
         "main_esp32.c"
         "hal_esp32_display.c"
         "hal_esp32_audio.c"
+        "hal_esp32_ble.c"
         "hal_esp32_input.c"
         "hal_esp32_system.c"
         "hal_esp32_power.c"

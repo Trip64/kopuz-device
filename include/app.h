@@ -115,6 +115,7 @@ typedef struct {
     bool progress_due;
 
     audio_output_mode_t output_mode;
+    bool vu_enabled;
 
     // Crash / BSOD fields
     char stop_code[32];
@@ -122,7 +123,7 @@ typedef struct {
 } app_state_t;
 
 extern const char *MENU_ITEMS[5];
-extern const char *SETTINGS_ITEMS[6];
+extern const char *SETTINGS_ITEMS[7];
 
 void app_init(app_state_t *app);
 void app_set_queue(app_state_t *app, track_t *tracks, uint16_t count);

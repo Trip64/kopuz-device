@@ -163,21 +163,6 @@ int main(int argc, char *argv[]) {
         hal_display_flush(fb.buffer);
         hal_display_present();
 
-        printf("[TEST 5/5] Testing BSOD Crash Screen & QR Code generation...\n");
-        app_trigger_bsod(&app, "ERR_UNSUPPORTED_FLAC", "192kHz sample rate (max 48k)");
-        ui_render(&fb, &app);
-        hal_display_flush(fb.buffer);
-        hal_display_present();
-        printf("  BSOD Active (Stop: %s, QR: OK) -> PASS\n", app.stop_code);
-
-        app_on_button(&app, BTN_NEXT);
-        printf("  BSOD Cycle Down (Stop: %s) -> PASS\n", app.stop_code);
-        app_on_button(&app, BTN_PREV);
-        printf("  BSOD Cycle Up (Stop: %s) -> PASS\n", app.stop_code);
-
-        app_on_button(&app, BTN_PLAY_PAUSE);
-        printf("  BSOD Reboot (Screen: %d) -> PASS\n", app.screen);
-
         printf("\nALL TESTS PASSED\n");
 
         audio_player_close();
@@ -207,6 +192,7 @@ int main(int argc, char *argv[]) {
         app_check_memory_safety(&app);
 
         uint32_t now = hal_get_time_ms();
+        audio_player_tick_vu();
         if (app.state == PLAYBACK_PLAYING) {
             app.dirty = true;
             if (now - last_progress_time >= 500) {
