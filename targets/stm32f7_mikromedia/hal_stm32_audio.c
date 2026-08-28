@@ -351,6 +351,28 @@ void hal_audio_close(void) {
     s_running = false;
 }
 
+bool hal_audio_has_hardware_codec(void) {
+    return true;
+}
+
+size_t hal_audio_write_stream(const uint8_t *data, size_t len) {
+    if (!data || len == 0 || !s_running || !s_codec_ready) return 0;
+
+    size_t offset = 0;
+    while (offset < len) {
+        size_t chunk = (len - offset > 32) ? 32 : (len - offset);
+        vs1053_wait_dreq();
+        VS_XCS_HIGH();
+        VS_XDCS_LOW();
+        for (size_t k = 0; k < chunk; k++) {
+            spi2_transfer(data[offset + k]);
+        }
+        VS_XDCS_HIGH();
+        offset += chunk;
+    }
+    return offset;
+}
+
 void hal_audio_beep(uint16_t freq_hz, uint16_t duration_ms) {
     if (freq_hz == 0) freq_hz = 1500;
     if (duration_ms == 0) duration_ms = 30;

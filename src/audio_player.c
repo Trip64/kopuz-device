@@ -6,18 +6,43 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "hal/hal_storage.h"
+
 static app_state_t *s_app = NULL;
 static decoder_t *s_decoder = NULL;
+static hal_file_t *s_raw_stream_file = NULL;
+static bool s_is_hw_stream = false;
 static int32_t s_pcm_buf[AUDIO_BUFFER_SAMPLES];
 
 static void load_current_track(void) {
+    if (s_raw_stream_file) {
+        hal_fclose(s_raw_stream_file);
+        s_raw_stream_file = NULL;
+    }
     if (s_decoder) {
         s_decoder->close(s_decoder);
         s_decoder = NULL;
     }
+    s_is_hw_stream = false;
 
     const track_t *track = app_get_current_track(s_app);
     if (!track) return;
+
+    if (hal_audio_has_hardware_codec() && (strstr(track->path, ".mp3") || strstr(track->path, ".MP3") || strstr(track->path, ".wav") || strstr(track->path, ".WAV"))) {
+        s_raw_stream_file = hal_fopen(track->path, "rb");
+        if (s_raw_stream_file) {
+            s_is_hw_stream = true;
+            hal_audio_init(44100, 2);
+            hal_audio_set_volume(s_app->volume);
+
+            const char *fmt_str = (strstr(track->path, ".wav") || strstr(track->path, ".WAV")) ? "WAV" : "MP3";
+            snprintf(s_app->format_badge, sizeof(s_app->format_badge), "%s HW/16b", fmt_str);
+            s_app->position_ms = 0;
+            s_app->dirty = true;
+            printf("Hardware streaming %s [%s]\n", track->path, s_app->format_badge);
+            return;
+        }
+    }
 
     s_decoder = decoder_open(track->path);
     if (!s_decoder) {
@@ -131,9 +156,38 @@ void audio_player_send_command(app_command_t cmd) {
 }
 
 void audio_player_process(void) {
-    if (!s_app || s_app->state != PLAYBACK_PLAYING || !s_decoder) {
+    if (!s_app || s_app->state != PLAYBACK_PLAYING) {
         return;
     }
+
+    if (s_is_hw_stream && s_raw_stream_file) {
+        uint8_t sbuf[256];
+        size_t r = hal_fread(sbuf, 1, sizeof(sbuf), s_raw_stream_file);
+        if (r > 0) {
+            hal_audio_write_stream(sbuf, r);
+            if (s_app->vu_enabled) {
+                for (int b = 0; b < 8; b++) {
+                    uint8_t v = (sbuf[b * 16] & 0x0F) + 6;
+                    s_app->vu_meter[b] = v;
+                    if (v > s_app->vu_peak[b]) s_app->vu_peak[b] = v;
+                }
+            }
+        } else {
+            app_command_t cmd = app_on_track_end(s_app);
+            if (cmd == CMD_LOAD_CURRENT) {
+                load_current_track();
+            } else {
+                hal_audio_stop();
+                if (s_raw_stream_file) {
+                    hal_fclose(s_raw_stream_file);
+                    s_raw_stream_file = NULL;
+                }
+            }
+        }
+        return;
+    }
+
+    if (!s_decoder) return;
 
     int n = s_decoder->decode(s_decoder, s_pcm_buf, AUDIO_BUFFER_SAMPLES);
     if (n > 0) {
@@ -232,22 +286,30 @@ void audio_player_tick_vu(void) {
 }
 
 bool audio_player_seek(uint32_t target_sec) {
-    if (!s_decoder || !s_decoder->seek || !s_app) return false;
-    hal_audio_stop();
-    bool ok = s_decoder->seek(s_decoder, target_sec);
-    if (ok) {
+    if (!s_app) return false;
+    if (s_is_hw_stream && s_raw_stream_file) {
+        long offset = (long)target_sec * 16000;
+        hal_fseek(s_raw_stream_file, offset, SEEK_SET);
         s_app->position_ms = target_sec * 1000;
-        s_app->dirty = true;
+        return true;
     }
-    hal_audio_resume();
-    return ok;
+    if (!s_decoder || !s_decoder->seek) return false;
+
+    if (s_decoder->seek(s_decoder, target_sec)) {
+        s_app->position_ms = target_sec * 1000;
+        return true;
+    }
+    return false;
 }
 
 void audio_player_close(void) {
+    if (s_raw_stream_file) {
+        hal_fclose(s_raw_stream_file);
+        s_raw_stream_file = NULL;
+    }
     if (s_decoder) {
         s_decoder->close(s_decoder);
         s_decoder = NULL;
     }
-    hal_audio_stop();
     hal_audio_close();
 }

@@ -36,6 +36,10 @@ void hal_audio_resume(void);
 // Deinitialize audio sink
 void hal_audio_close(void);
 
+// Direct streaming of encoded stream (MP3/WAV) to hardware codec
+size_t hal_audio_write_stream(const uint8_t *data, size_t len);
+bool hal_audio_has_hardware_codec(void);
+
 // Play an instant pleasant UI feedback tone/chime (e.g. 1200 Hz, 30 ms)
 void hal_audio_beep(uint16_t freq_hz, uint16_t duration_ms);
 
