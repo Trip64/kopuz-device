@@ -207,16 +207,25 @@ static void draw_progress_bar(framebuffer_t *fb, int16_t x, int16_t y, int16_t w
 
 static void draw_spectrum(framebuffer_t *fb, int16_t x, int16_t y, const app_state_t *app) {
     if (!fb || !app) return;
-    int16_t bar_w = 3;
-    int16_t gap = 1;
-    int16_t max_h = 12;
+    int16_t bar_w = 4;
+    int16_t gap = 2;
+    int16_t max_h = 16;
 
     for (int b = 0; b < 8; b++) {
         int16_t bx = x + b * (bar_w + gap);
         uint8_t lvl = app->vu_meter[b];
         if (lvl > max_h) lvl = max_h;
-        if (lvl > 0) {
-            fb_fill_rect(fb, bx, y + (max_h - lvl), bar_w, lvl, true);
+
+        // Segmented LED blocks (2px block, 1px gap)
+        for (int16_t h = 2; h <= lvl; h += 3) {
+            fb_fill_rect(fb, bx, y + (max_h - h), bar_w, 2, true);
+        }
+
+        // Peak hold floating indicator
+        uint8_t pk = app->vu_peak[b];
+        if (pk > max_h) pk = max_h;
+        if (pk > 1) {
+            fb_draw_line(fb, bx, y + (max_h - pk), bx + bar_w - 1, y + (max_h - pk), true);
         } else {
             fb_set_pixel(fb, bx + 1, y + max_h - 1, true);
         }
@@ -277,6 +286,7 @@ static void render_list(framebuffer_t *fb, const app_state_t *app) {
                     else if (idx == 2) snprintf(line, sizeof(line), "Volume:     %u%%", app->volume);
                     else if (idx == 3) snprintf(line, sizeof(line), "Brightness: %u%%", app->brightness);
                     else if (idx == 4) snprintf(line, sizeof(line), "Theme:   %s", THEMES[app->theme_index].name);
+                    else if (idx == 5) snprintf(line, sizeof(line), "Output:  [%s]", (app->output_mode == OUTPUT_BLE_AUDIO) ? "BLE AUDIO" : "I2S DAC");
                     break;
                 case SCREEN_SONGS: {
                     const char *m = " ";
@@ -348,26 +358,13 @@ static void render_now_playing(framebuffer_t *fb, const app_state_t *app) {
     int16_t art_size = ART_BOX_PX;
 
     if (app->art_valid && app->art_rgb565) {
-        fb_draw_rect(fb, ax - 1, ay - 1, art_size + 2, art_size + 2, true);
-    } else {
-        // Vinyl Record Groove styling
         fb_draw_rect(fb, ax, ay, art_size, art_size, true);
-        int16_t cx = ax + art_size / 2;
-        int16_t cy = ay + art_size / 2;
-
-        int16_t r1 = art_size / 2 - 3;
-        int16_t r2 = art_size / 2 - 8;
-        int16_t r3 = art_size / 2 - 13;
-        int16_t r_center = 7;
-
-        if (r1 > 0) fb_draw_rect(fb, cx - r1, cy - r1, r1 * 2, r1 * 2, true);
-        if (r2 > 0) fb_draw_rect(fb, cx - r2, cy - r2, r2 * 2, r2 * 2, true);
-        if (r3 > 0) fb_draw_rect(fb, cx - r3, cy - r3, r3 * 2, r3 * 2, true);
-
-        fb_fill_rect(fb, cx - r_center, cy - r_center, r_center * 2, r_center * 2, true);
+    } else {
+        fb_draw_rect(fb, ax, ay, art_size, art_size, true);
+        fb_draw_rect(fb, ax + 2, ay + 2, art_size - 4, art_size - 4, true);
         const char *g = state_glyph(app->state);
-        int16_t gw = (int16_t)strlen(g) * font_6x10.width;
-        fb_draw_text(fb, cx - gw / 2, cy - font_6x10.height / 2, g, &font_6x10, true);
+        int16_t gw = (int16_t)strlen(g) * font_8x13_bold.width;
+        fb_draw_text(fb, ax + (art_size - gw) / 2, ay + (art_size - font_8x13_bold.height) / 2, g, &font_8x13_bold, false);
     }
 
     int16_t tx = ax + art_size + 8;
@@ -387,8 +384,8 @@ static void render_now_playing(framebuffer_t *fb, const app_state_t *app) {
     }
     fb_draw_text(fb, tx, ay + 39, tags, &font_6x10, false);
 
-    // 8-Band Real-Time Audio Spectrum Visualizer
-    draw_spectrum(fb, fb->width - 38, ay + 26, app);
+    // 8-Band Hi-Fi Segmented Audio Spectrum Visualizer
+    draw_spectrum(fb, fb->width - 52, ay + 22, app);
 
     int16_t by = fb->height - 22;
     int16_t q_top = (ay + art_size + 4) > (ay + 52) ? (ay + art_size + 4) : (ay + 52);

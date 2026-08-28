@@ -59,6 +59,11 @@ typedef enum {
     REPEAT_ONE
 } repeat_mode_t;
 
+typedef enum {
+    OUTPUT_I2S_DAC = 0,
+    OUTPUT_BLE_AUDIO
+} audio_output_mode_t;
+
 typedef struct {
     track_t *queue;
     uint16_t queue_len;
@@ -101,6 +106,7 @@ typedef struct {
 
     // Visualizer and audio metadata
     uint8_t vu_meter[8];
+    uint8_t vu_peak[8];
     char format_badge[24];
     uint16_t marquee_offset;
     uint32_t last_anim_ms;
@@ -108,13 +114,15 @@ typedef struct {
     bool dirty;
     bool progress_due;
 
+    audio_output_mode_t output_mode;
+
     // Crash / BSOD fields
     char stop_code[32];
     char crash_details[64];
 } app_state_t;
 
 extern const char *MENU_ITEMS[5];
-extern const char *SETTINGS_ITEMS[5];
+extern const char *SETTINGS_ITEMS[6];
 
 void app_init(app_state_t *app);
 void app_set_queue(app_state_t *app, track_t *tracks, uint16_t count);

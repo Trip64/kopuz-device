@@ -144,23 +144,47 @@ void audio_player_process(void) {
         size_t frames = (size_t)n / ch;
         s_app->position_ms += (uint32_t)(((uint64_t)frames * 1000) / sr);
 
-        int chunk = n / 8;
-        if (chunk > 0) {
+        int step = 2;
+        int count = 0;
+        int32_t p1 = 0, p2 = 0;
+        uint32_t band_acc[8] = {0};
+
+        for (int i = 0; i < n; i += step) {
+            int32_t s = s_pcm_buf[i] >> 16;
+            int32_t abs_s = (s < 0) ? -s : s;
+            int32_t d1 = (s - p1); if (d1 < 0) d1 = -d1;
+            int32_t d2 = (s - 2 * p1 + p2); if (d2 < 0) d2 = -d2;
+            p2 = p1;
+            p1 = s;
+
+            band_acc[0] += (uint32_t)abs_s;
+            band_acc[1] += (uint32_t)(abs_s * 3 / 4 + d1 / 4);
+            band_acc[2] += (uint32_t)(abs_s / 2 + d1 / 2);
+            band_acc[3] += (uint32_t)(abs_s / 3 + d1 * 2 / 3);
+            band_acc[4] += (uint32_t)d1;
+            band_acc[5] += (uint32_t)(d1 * 3 / 4 + d2 / 4);
+            band_acc[6] += (uint32_t)(d1 / 2 + d2 / 2);
+            band_acc[7] += (uint32_t)d2;
+            count++;
+        }
+
+        if (count > 0) {
+            static const uint32_t scale[8] = {1400, 1600, 2000, 2400, 2800, 3200, 3800, 4400};
             for (int b = 0; b < 8; b++) {
-                int start = b * chunk;
-                int end = start + chunk;
-                uint32_t peak = 0;
-                for (int i = start; i < end; i += 4) {
-                    int32_t smp = s_pcm_buf[i] >> 16;
-                    if (smp < 0) smp = -smp;
-                    if ((uint32_t)smp > peak) peak = (uint32_t)smp;
-                }
-                uint8_t lvl = (uint8_t)((peak * 12) / 32768);
-                if (lvl > 12) lvl = 12;
+                uint32_t avg = band_acc[b] / (uint32_t)count;
+                uint8_t lvl = (uint8_t)((avg * 16) / scale[b]);
+                if (lvl > 16) lvl = 16;
+
                 if (lvl >= s_app->vu_meter[b]) {
                     s_app->vu_meter[b] = lvl;
                 } else if (s_app->vu_meter[b] > 0) {
                     s_app->vu_meter[b]--;
+                }
+
+                if (lvl >= s_app->vu_peak[b]) {
+                    s_app->vu_peak[b] = lvl;
+                } else if (s_app->vu_peak[b] > 0) {
+                    s_app->vu_peak[b]--;
                 }
             }
         }
