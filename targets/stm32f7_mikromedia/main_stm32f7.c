@@ -1,5 +1,6 @@
 #if defined(STM32F746xx) || defined(TARGET_STM32F7) || defined(TARGET_STM32F7_MIKROMEDIA)
 
+#include "stm32f7xx_hal.h"
 #include "app.h"
 #include "audio_player.h"
 #include "library/library.h"
@@ -11,7 +12,68 @@
 #include "hal/hal_power.h"
 #include "hal/hal_system.h"
 
+static void SystemClock_Config(void) {
+    RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+    RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+    
+    __HAL_RCC_PWR_CLK_ENABLE();
+    __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+    
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+    RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+    RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+    RCC_OscInitStruct.PLL.PLLM = 25;
+    RCC_OscInitStruct.PLL.PLLN = 432;
+    RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+    RCC_OscInitStruct.PLL.PLLQ = 9;
+    HAL_RCC_OscConfig(&RCC_OscInitStruct);
+    
+    HAL_PWREx_EnableOverDrive();
+    
+    RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK
+                                | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+    RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+    RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+    RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+    RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
+    HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_7);
+}
+
+static void MX_GPIO_Init(void) {
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+    
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+    __HAL_RCC_GPIOC_CLK_ENABLE();
+    __HAL_RCC_GPIOD_CLK_ENABLE();
+    __HAL_RCC_GPIOE_CLK_ENABLE();
+    __HAL_RCC_GPIOF_CLK_ENABLE();
+    __HAL_RCC_GPIOG_CLK_ENABLE();
+    
+    /* TFT Data Bus: PE8-PE15 (High Byte) */
+    GPIO_InitStruct.Pin = GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_10 | GPIO_PIN_11 |
+                          GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+    
+    /* TFT Data Bus: PG0-PG7 (Low Byte) */
+    GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3 |
+                          GPIO_PIN_4 | GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7;
+    HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
+    
+    /* TFT Control Pins on Port F (PF10..PF15) */
+    GPIO_InitStruct.Pin = GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15;
+    HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
+}
+
 int main(void) {
+    HAL_Init();
+    SystemClock_Config();
+    MX_GPIO_Init();
+
     hal_display_init();
     hal_input_init();
     hal_battery_init();
@@ -30,7 +92,7 @@ int main(void) {
 
     hal_display_set_theme(THEMES[s_app.theme_index].fg, THEMES[s_app.theme_index].bg);
 
-    // Initial render and flush
+    // Initial render
     ui_render(&fb, &s_app);
     hal_display_flush(fb.buffer);
     hal_display_present();
@@ -62,7 +124,7 @@ int main(void) {
             s_app.dirty = false;
         }
 
-        hal_delay_ms(10);
+        HAL_Delay(10);
     }
 
     return 0;

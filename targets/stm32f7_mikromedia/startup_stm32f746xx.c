@@ -7,7 +7,6 @@ extern uint32_t _edata;
 extern uint32_t _sbss;
 extern uint32_t _ebss;
 
-extern void __libc_init_array(void);
 extern int main(void);
 
 void Reset_Handler(void);
@@ -40,10 +39,31 @@ void (* const g_pfnVectors[])(void) = {
     SysTick_Handler,
 };
 
-void Reset_Handler(void) {
-    // Enable FPU (Coprocessor CP10 & CP11 Full Access)
+static void SystemInit(void) {
+    // 1. Enable FPU (Coprocessor CP10 & CP11 Full Access)
     #define SCB_CPACR (*((volatile uint32_t*)0xE000ED88))
     SCB_CPACR |= ((3UL << 10*2) | (3UL << 11*2));
+
+    // 2. Enable AHB1 GPIO Clocks (GPIOA..GPIOG)
+    #define RCC_AHB1ENR (*((volatile uint32_t*)0x40023830))
+    RCC_AHB1ENR |= 0x7F;
+
+    // 3. Configure Status RGB LEDs (PG15 = Red, PB3 = Green, PB4 = Blue)
+    #define GPIOB_MODER (*((volatile uint32_t*)0x40020400))
+    #define GPIOB_BSRR  (*((volatile uint32_t*)0x40020418))
+    #define GPIOG_MODER (*((volatile uint32_t*)0x40021800))
+    #define GPIOG_BSRR  (*((volatile uint32_t*)0x40021818))
+
+    GPIOB_MODER = (GPIOB_MODER & ~0x000003C0) | 0x00000140; // Output on PB3, PB4
+    GPIOG_MODER = (GPIOG_MODER & ~0xC0000000) | 0x40000000; // Output on PG15
+
+    // Turn ON Green & Blue Status LEDs on board
+    GPIOB_BSRR = (1UL << 3) | (1UL << 4);
+}
+
+void Reset_Handler(void) {
+    // Hardware system init
+    SystemInit();
 
     // Copy .data section from Flash to RAM
     uint32_t *pSrc = &_sidata;
@@ -58,10 +78,7 @@ void Reset_Handler(void) {
         *pDst++ = 0;
     }
 
-    // Call static constructors if any
-    // __libc_init_array();
-
-    // Call main entry point
+    // Run application
     main();
 
     while (1) {
