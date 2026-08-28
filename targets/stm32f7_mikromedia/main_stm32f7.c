@@ -119,6 +119,9 @@ int main(void) {
     hal_display_present();
     s_app.dirty = false;
 
+    // Power-on earphone chime test
+    hal_audio_beep(1000, 40);
+
     uint32_t last_tick = HAL_GetTick();
 
     while (1) {
@@ -132,12 +135,16 @@ int main(void) {
             btn = hal_input_poll();
         }
 
+        // Decode and stream audio data to VS1053 codec
+        if (s_app.state == PLAYBACK_PLAYING) {
+            audio_player_process();
+        }
+
         uint32_t now = HAL_GetTick();
         if (now - last_tick >= 50) {
             last_tick = now;
 
             if (s_app.state == PLAYBACK_PLAYING) {
-                s_app.position_ms += 50;
                 if (s_app.position_ms >= (uint32_t)s_app.queue[s_app.current_index].duration_secs * 1000) {
                     s_app.position_ms = 0;
                     app_on_button(&s_app, BTN_NEXT);
@@ -157,7 +164,9 @@ int main(void) {
             s_app.dirty = false;
         }
 
-        HAL_Delay(5);
+        if (s_app.state != PLAYBACK_PLAYING) {
+            HAL_Delay(5);
+        }
     }
 
     return 0;
