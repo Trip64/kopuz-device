@@ -72,42 +72,45 @@ void ui_render_bsod(framebuffer_t *fb, const char *stop_code, const char *detail
 
     const char *sc = stop_code ? stop_code : "UNKNOWN_ERROR";
 
-    // 1. Compact 128x64 OLED Layout
+    // 1. Compact 128x64 OLED Layout (Pixel-fitted 64px bounds)
     if (fb->width <= 140 && fb->height <= 80) {
         fb_fill_rect(fb, 0, 0, fb->width, 10, true);
         fb_draw_text(fb, 2, 0, ":( CRASH", &font_6x10, true);
 
-        fb_draw_text_trunc(fb, 2, 12, sc, 20, &font_6x10, false);
+        char stop_buf[32];
+        snprintf(stop_buf, sizeof(stop_buf), "STOP: %s", sc);
+        fb_draw_text_trunc(fb, 2, 12, stop_buf, 20, &font_6x10, false);
 
         if (details && details[0]) {
-            fb_draw_text_trunc(fb, 2, 23, details, 20, &font_6x10, false);
+            char det_buf[32];
+            snprintf(det_buf, sizeof(det_buf), "INFO: %s", details);
+            fb_draw_text_trunc(fb, 2, 23, det_buf, 20, &font_6x10, false);
         } else {
             fb_draw_text(fb, 2, 23, "kopuz.org/err", &font_6x10, false);
         }
 
-        fb_draw_line(fb, 0, 36, fb->width, 36, true);
-        fb_draw_text(fb, 2, 39, "Reboot needed", &font_6x10, false);
+        fb_draw_text(fb, 2, 35, "kopuz.org/err", &font_6x10, false);
 
-        fb_fill_rect(fb, 0, 52, fb->width, 12, true);
-        fb_draw_text(fb, 2, 53, "KEY TO REBOOT", &font_6x10, true);
+        fb_fill_rect(fb, 0, 48, fb->width, 14, true);
+        fb_draw_text(fb, 2, 50, "PRESS TO REBOOT", &font_6x10, true);
         return;
     }
 
     // 2. Square 128x128 OLED Layout
     if (fb->width <= 140 && fb->height > 80) {
         fb_draw_text(fb, 2, 2, ":( CRASH", &font_8x13_bold, false);
-        fb_draw_line(fb, 0, 16, fb->width, 16, true);
+        fb_draw_line(fb, 0, 15, fb->width, 15, true);
 
-        int16_t ty = 20;
-        fb_draw_text(fb, 2, ty, "STOP CODE:", &font_6x10, false);
-        ty += 11;
-        draw_wrapped_line(fb, 2, &ty, sc, fb->width - 4, 2, &font_6x10);
+        int16_t ty = 18;
+        char stop_buf[32];
+        snprintf(stop_buf, sizeof(stop_buf), "STOP: %s", sc);
+        draw_wrapped_line(fb, 2, &ty, stop_buf, fb->width - 4, 2, &font_6x10);
 
         ty += 2;
-        if (details && details[0]) {
-            fb_draw_text(fb, 2, ty, "DETAILS:", &font_6x10, false);
-            ty += 11;
-            draw_wrapped_line(fb, 2, &ty, details, fb->width - 4, 2, &font_6x10);
+        if (details && details[0] && ty < 55) {
+            char det_buf[64];
+            snprintf(det_buf, sizeof(det_buf), "INFO: %s", details);
+            draw_wrapped_line(fb, 2, &ty, det_buf, fb->width - 4, 2, &font_6x10);
         }
 
         char url[128];
@@ -123,7 +126,7 @@ void ui_render_bsod(framebuffer_t *fb, const char *stop_code, const char *detail
             int qr_size = qrcodegen_getSize(qrcode);
             int box_w = qr_size + 4;
             int16_t qr_x = (fb->width - box_w) / 2;
-            int16_t qr_y = fb->height - box_w - 16;
+            int16_t qr_y = fb->height - box_w - 18;
             if (qr_y >= ty + 2) {
                 fb_fill_rect(fb, qr_x, qr_y, box_w, box_w, true);
                 for (int qy = 0; qy < qr_size; qy++) {
@@ -137,7 +140,7 @@ void ui_render_bsod(framebuffer_t *fb, const char *stop_code, const char *detail
         }
 
         fb_draw_line(fb, 0, fb->height - 14, fb->width, fb->height - 14, true);
-        fb_draw_text(fb, 2, fb->height - 11, "KEY TO REBOOT", &font_6x10, false);
+        fb_draw_text(fb, 2, fb->height - 11, "PRESS TO REBOOT", &font_6x10, false);
         return;
     }
 
@@ -166,7 +169,7 @@ void ui_render_bsod(framebuffer_t *fb, const char *stop_code, const char *detail
     if (ok) {
         int qr_size = qrcodegen_getSize(qrcode);
 
-        int box_w = (fb->height <= 140) ? 64 : ((fb->height <= 180) ? 76 : 104);
+        int box_w = (fb->height <= 140) ? 56 : ((fb->height <= 180) ? 72 : 96);
         int box_h = box_w;
         int16_t box_x = 8;
         int16_t box_y = (fb->height - box_h) / 2;
@@ -211,17 +214,27 @@ void ui_render_bsod(framebuffer_t *fb, const char *stop_code, const char *detail
     fb_draw_line(fb, text_left, ty, fb->width - 8, ty, true);
     ty += 4;
 
-    fb_draw_text(fb, text_left, ty, "STOP CODE:", &font_6x10, false);
-    ty += 11;
+    if (fb->height <= 140) {
+        char stop_buf[64];
+        snprintf(stop_buf, sizeof(stop_buf), "STOP: %s", sc);
+        draw_wrapped_line(fb, text_left, &ty, stop_buf, right_w, 2, &font_6x10);
 
-    const font_t *sc_font = (fb->height <= 140) ? &font_6x10 : &font_8x13_bold;
-    draw_wrapped_line(fb, text_left, &ty, sc, right_w, 2, sc_font);
-    ty += 1;
+        if (details && details[0] && ty < fb->height - 24) {
+            char det_buf[64];
+            snprintf(det_buf, sizeof(det_buf), "INFO: %s", details);
+            draw_wrapped_line(fb, text_left, &ty, det_buf, right_w, 2, &font_6x10);
+        }
+    } else {
+        fb_draw_text(fb, text_left, ty, "STOP CODE:", &font_6x10, false);
+        ty += 11;
+        draw_wrapped_line(fb, text_left, &ty, sc, right_w, 2, &font_8x13_bold);
+        ty += 1;
 
-    if (details && details[0] && ty < fb->height - 24) {
-        fb_draw_text(fb, text_left, ty, "DETAILS:", &font_6x10, false);
-        ty += 10;
-        draw_wrapped_line(fb, text_left, &ty, details, right_w, 2, &font_6x10);
+        if (details && details[0] && ty < fb->height - 24) {
+            fb_draw_text(fb, text_left, ty, "DETAILS:", &font_6x10, false);
+            ty += 10;
+            draw_wrapped_line(fb, text_left, &ty, details, right_w, 2, &font_6x10);
+        }
     }
 
     int16_t reboot_y = fb->height - 14;
