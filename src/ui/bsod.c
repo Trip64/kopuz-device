@@ -70,11 +70,83 @@ void ui_render_bsod(framebuffer_t *fb, const char *stop_code, const char *detail
     hal_display_set_theme(BSOD_COLOR_WHITE, BSOD_COLOR_BLUE);
     fb_clear(fb);
 
+    const char *sc = stop_code ? stop_code : "UNKNOWN_ERROR";
+
+    // 1. Compact 128x64 OLED Layout
+    if (fb->width <= 140 && fb->height <= 80) {
+        fb_fill_rect(fb, 0, 0, fb->width, 10, true);
+        fb_draw_text(fb, 2, 0, ":( CRASH", &font_6x10, true);
+
+        fb_draw_text_trunc(fb, 2, 12, sc, 20, &font_6x10, false);
+
+        if (details && details[0]) {
+            fb_draw_text_trunc(fb, 2, 23, details, 20, &font_6x10, false);
+        } else {
+            fb_draw_text(fb, 2, 23, "kopuz.org/err", &font_6x10, false);
+        }
+
+        fb_draw_line(fb, 0, 36, fb->width, 36, true);
+        fb_draw_text(fb, 2, 39, "Reboot needed", &font_6x10, false);
+
+        fb_fill_rect(fb, 0, 52, fb->width, 12, true);
+        fb_draw_text(fb, 2, 53, "KEY TO REBOOT", &font_6x10, true);
+        return;
+    }
+
+    // 2. Square 128x128 OLED Layout
+    if (fb->width <= 140 && fb->height > 80) {
+        fb_draw_text(fb, 2, 2, ":( CRASH", &font_8x13_bold, false);
+        fb_draw_line(fb, 0, 16, fb->width, 16, true);
+
+        int16_t ty = 20;
+        fb_draw_text(fb, 2, ty, "STOP CODE:", &font_6x10, false);
+        ty += 11;
+        draw_wrapped_line(fb, 2, &ty, sc, fb->width - 4, 2, &font_6x10);
+
+        ty += 2;
+        if (details && details[0]) {
+            fb_draw_text(fb, 2, ty, "DETAILS:", &font_6x10, false);
+            ty += 11;
+            draw_wrapped_line(fb, 2, &ty, details, fb->width - 4, 2, &font_6x10);
+        }
+
+        char url[128];
+        if (qr_payload && qr_payload[0]) {
+            snprintf(url, sizeof(url), "%s", qr_payload);
+        } else {
+            snprintf(url, sizeof(url), "https://kopuz.org/err?c=%s", sc);
+        }
+
+        uint8_t qrcode[qrcodegen_BUFFER_LEN_FOR_VERSION(3)];
+        uint8_t tempBuffer[qrcodegen_BUFFER_LEN_FOR_VERSION(3)];
+        if (qrcodegen_encodeText(url, tempBuffer, qrcode, qrcodegen_Ecc_LOW, 1, 3, qrcodegen_Mask_AUTO, true)) {
+            int qr_size = qrcodegen_getSize(qrcode);
+            int box_w = qr_size + 4;
+            int16_t qr_x = (fb->width - box_w) / 2;
+            int16_t qr_y = fb->height - box_w - 16;
+            if (qr_y >= ty + 2) {
+                fb_fill_rect(fb, qr_x, qr_y, box_w, box_w, true);
+                for (int qy = 0; qy < qr_size; qy++) {
+                    for (int qx = 0; qx < qr_size; qx++) {
+                        if (qrcodegen_getModule(qrcode, qx, qy)) {
+                            fb_set_pixel(fb, qr_x + 2 + qx, qr_y + 2 + qy, false);
+                        }
+                    }
+                }
+            }
+        }
+
+        fb_draw_line(fb, 0, fb->height - 14, fb->width, fb->height - 14, true);
+        fb_draw_text(fb, 2, fb->height - 11, "KEY TO REBOOT", &font_6x10, false);
+        return;
+    }
+
+    // 3. Wide / Standard Screens (296x128 E-Paper, 320x170 T-Display, 320x240, 400x240, 480x272)
     char url[128];
     if (qr_payload && qr_payload[0]) {
         snprintf(url, sizeof(url), "%s", qr_payload);
     } else {
-        snprintf(url, sizeof(url), "https://kopuz.org/err?c=%s", stop_code ? stop_code : "UNKNOWN");
+        snprintf(url, sizeof(url), "https://kopuz.org/err?c=%s", sc);
     }
 
     uint8_t qrcode[qrcodegen_BUFFER_LEN_FOR_VERSION(5)];
@@ -94,11 +166,11 @@ void ui_render_bsod(framebuffer_t *fb, const char *stop_code, const char *detail
     if (ok) {
         int qr_size = qrcodegen_getSize(qrcode);
 
-        int box_w = 104;
-        int box_h = 104;
-        int16_t box_x = 10;
+        int box_w = (fb->height <= 140) ? 64 : ((fb->height <= 180) ? 76 : 104);
+        int box_h = box_w;
+        int16_t box_x = 8;
         int16_t box_y = (fb->height - box_h) / 2;
-        if (box_y < 6) box_y = 6;
+        if (box_y < 4) box_y = 4;
 
         fb_fill_rect(fb, box_x, box_y, box_w, box_h, true);
 
@@ -125,33 +197,34 @@ void ui_render_bsod(framebuffer_t *fb, const char *stop_code, const char *detail
             }
         }
 
-        text_left = box_x + box_w + 12;
+        text_left = box_x + box_w + 10;
     }
 
     int16_t right_w = fb->width - text_left - 8;
     if (right_w < 60) right_w = 60;
 
-    int16_t ty = 10;
+    int16_t ty = (fb->height <= 140) ? 4 : 8;
 
-    fb_draw_text(fb, text_left, ty, ":(  SYSTEM CRASH", &font_8x13_bold, false);
-    ty += 15;
+    const font_t *title_font = (fb->height <= 140) ? &font_6x10 : &font_8x13_bold;
+    fb_draw_text(fb, text_left, ty, ":(  SYSTEM CRASH", title_font, false);
+    ty += title_font->height + 3;
     fb_draw_line(fb, text_left, ty, fb->width - 8, ty, true);
-    ty += 6;
+    ty += 4;
 
     fb_draw_text(fb, text_left, ty, "STOP CODE:", &font_6x10, false);
     ty += 11;
 
-    const char *sc = stop_code ? stop_code : "UNKNOWN_ERROR";
-    draw_wrapped_line(fb, text_left, &ty, sc, right_w, 2, &font_8x13_bold);
+    const font_t *sc_font = (fb->height <= 140) ? &font_6x10 : &font_8x13_bold;
+    draw_wrapped_line(fb, text_left, &ty, sc, right_w, 2, sc_font);
     ty += 1;
 
-    if (details && details[0]) {
+    if (details && details[0] && ty < fb->height - 24) {
         fb_draw_text(fb, text_left, ty, "DETAILS:", &font_6x10, false);
-        ty += 11;
+        ty += 10;
         draw_wrapped_line(fb, text_left, &ty, details, right_w, 2, &font_6x10);
     }
 
     int16_t reboot_y = fb->height - 14;
-    fb_draw_line(fb, text_left, reboot_y - 3, fb->width - 8, reboot_y - 3, true);
+    fb_draw_line(fb, text_left, reboot_y - 2, fb->width - 8, reboot_y - 2, true);
     fb_draw_text(fb, text_left, reboot_y, "PRESS ANY KEY TO REBOOT", &font_6x10, false);
 }
