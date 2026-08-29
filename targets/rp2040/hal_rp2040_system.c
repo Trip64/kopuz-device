@@ -52,10 +52,16 @@ uint32_t hal_random_range(uint32_t min, uint32_t max) {
     return min + (hal_random() % (max - min + 1));
 }
 
+#include "hardware/watchdog.h"
+
 uint32_t hal_system_get_ram_used_bytes(void) {
     extern char __bss_start__[];
     extern char __bss_end__[];
     return (uint32_t)(__bss_end__ - __bss_start__);
+}
+
+void hal_system_reboot(void) {
+    watchdog_reboot(0, 0, 0);
 }
 
 #endif

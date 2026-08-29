@@ -1,0 +1,17 @@
+# ESP-IDF config for LilyGO T-Display S3
+
+# --- CPU / FreeRTOS --------------------------------------------------------
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_FREERTOS_HZ=1000
+
+# --- Console over native USB-Serial-JTAG so UART0 (GPIO 43, 44) is freed up for I2S ---
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# --- Flash: this board reports 4 MB, no PSRAM (esp32s3 rev v0.1) ------------
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# --- FATFS on SD card for the music library --------------------------------
+CONFIG_FATFS_LFN_HEAP=y
+CONFIG_FATFS_MAX_LFN=255

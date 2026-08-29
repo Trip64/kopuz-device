@@ -22,6 +22,7 @@ typedef void (*hal_thread_fn_t)(void *arg);
 bool hal_thread_create(const char *name, hal_thread_fn_t fn, void *arg, uint32_t stack_size, int priority);
 
 uint32_t hal_system_get_ram_used_bytes(void);
+void hal_system_reboot(void);
 
 #ifdef __cplusplus
 }

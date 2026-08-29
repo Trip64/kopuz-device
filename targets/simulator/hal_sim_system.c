@@ -50,3 +50,7 @@ bool hal_thread_create(const char *name, hal_thread_fn_t fn, void *arg, uint32_t
 uint32_t hal_system_get_ram_used_bytes(void) {
     return 0;
 }
+
+void hal_system_reboot(void) {
+    exit(0);
+}

@@ -137,6 +137,9 @@ static void draw_topbar(framebuffer_t *fb, const app_state_t *app) {
                 title = "ARTIST";
             }
             break;
+        case SCREEN_CONFIRM_REBOOT:
+            title = "REBOOT?";
+            break;
         case SCREEN_BSOD:
             title = "CRASH";
             break;
@@ -413,6 +416,10 @@ static void render_list(framebuffer_t *fb, const app_state_t *app) {
                     }
                     break;
                 }
+                case SCREEN_CONFIRM_REBOOT:
+                    if (idx == 0) snprintf(line, sizeof(line), "  [!] Restart Now (Apply)");
+                    else if (idx == 1) snprintf(line, sizeof(line), "  [<] Cancel");
+                    break;
                 default:
                     break;
             }

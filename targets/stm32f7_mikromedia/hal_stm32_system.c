@@ -23,6 +23,10 @@ void hal_system_reset(void) {
     NVIC_SystemReset();
 }
 
+void hal_system_reboot(void) {
+    NVIC_SystemReset();
+}
+
 void hal_system_enter_dfu(void) {
     *DFU_FLAG_PTR = DFU_MAGIC_VAL;
     NVIC_SystemReset();

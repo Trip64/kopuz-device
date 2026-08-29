@@ -48,10 +48,16 @@ uint32_t hal_random_range(uint32_t min, uint32_t max) {
 
 #include "esp_heap_caps.h"
 
+#include "esp_system.h"
+
 uint32_t hal_system_get_ram_used_bytes(void) {
     size_t total = heap_caps_get_total_size(MALLOC_CAP_DEFAULT);
     size_t free_sz = esp_get_free_heap_size();
     return (total > free_sz) ? (uint32_t)(total - free_sz) : 0;
+}
+
+void hal_system_reboot(void) {
+    esp_restart();
 }
 
 #endif
