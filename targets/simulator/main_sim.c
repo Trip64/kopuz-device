@@ -199,35 +199,40 @@ int main(int argc, char *argv[]) {
             return 1;
         }
 
-        printf("[TEST 1/4] Playing Track 0 (WAV: %s)...\n", s_app.queue[0].title);
-        app_command_t cmd = app_on_button(&s_app, BTN_PLAY_PAUSE);
-        cmd = app_on_button(&s_app, BTN_PLAY_PAUSE);
-        audio_player_send_command(cmd);
-
-        uint32_t start_t = hal_get_time_ms();
-        while (hal_get_time_ms() - start_t < 1200) {
-            while (s_app.state == PLAYBACK_PLAYING && hal_audio_needs_data()) {
-                audio_player_process();
-            }
-            hal_delay_ms(5);
-        }
-        ui_render(&fb, &s_app);
-        hal_display_flush(fb.buffer);
-        printf("  Position: %u ms (State: %d) -> PASS\n", (unsigned)s_app.position_ms, s_app.state);
-
+        int wav_idx = -1;
         int mp3_idx = -1;
         int flac_idx = -1;
         for (uint16_t i = 0; i < num_tracks; i++) {
             printf("  Track %u: %s [%s]\n", (unsigned)i, s_app.queue[i].title, s_app.queue[i].path);
-            if (strstr(s_app.queue[i].path, ".mp3")) mp3_idx = (int)i;
-            if (strstr(s_app.queue[i].path, ".flac")) flac_idx = (int)i;
+            if (wav_idx < 0 && strstr(s_app.queue[i].path, "01 - A440 Test Tone.wav")) wav_idx = (int)i;
+            if (mp3_idx < 0 && strstr(s_app.queue[i].path, "03 - Acoustic Resonance.mp3")) mp3_idx = (int)i;
+            if (flac_idx < 0 && strstr(s_app.queue[i].path, "02 - Cyber Pulse.flac")) flac_idx = (int)i;
+        }
+
+        if (wav_idx >= 0) {
+            printf("[TEST 1/4] Testing WAV Test Tone (%s)...\n", s_app.queue[wav_idx].title);
+            s_app.current_index = (uint16_t)wav_idx;
+            s_app.state = PLAYBACK_PLAYING;
+            audio_player_send_command(CMD_LOAD_CURRENT);
+            uint32_t start_t = hal_get_time_ms();
+            while (hal_get_time_ms() - start_t < 1200) {
+                while (s_app.state == PLAYBACK_PLAYING && hal_audio_needs_data()) {
+                    audio_player_process();
+                }
+                hal_delay_ms(5);
+            }
+            ui_render(&fb, &s_app);
+            hal_display_flush(fb.buffer);
+            printf("  Playing: %s (Position: %u ms, Art valid: %s) -> PASS\n",
+                   s_app.queue[s_app.current_index].title, (unsigned)s_app.position_ms, s_app.art_valid ? "YES" : "NO");
         }
 
         if (mp3_idx >= 0) {
-            printf("[TEST 2/4] Testing MP3 Track (%s)...\n", s_app.queue[mp3_idx].title);
+            printf("[TEST 2/4] Testing MP3 Test Tone (%s)...\n", s_app.queue[mp3_idx].title);
             s_app.current_index = (uint16_t)mp3_idx;
+            s_app.state = PLAYBACK_PLAYING;
             audio_player_send_command(CMD_LOAD_CURRENT);
-            start_t = hal_get_time_ms();
+            uint32_t start_t = hal_get_time_ms();
             while (hal_get_time_ms() - start_t < 1200) {
                 while (s_app.state == PLAYBACK_PLAYING && hal_audio_needs_data()) {
                     audio_player_process();
@@ -241,10 +246,11 @@ int main(int argc, char *argv[]) {
         }
 
         if (flac_idx >= 0) {
-            printf("[TEST 3/4] Testing FLAC Track (%s)...\n", s_app.queue[flac_idx].title);
+            printf("[TEST 3/4] Testing FLAC Test Tone (%s)...\n", s_app.queue[flac_idx].title);
             s_app.current_index = (uint16_t)flac_idx;
+            s_app.state = PLAYBACK_PLAYING;
             audio_player_send_command(CMD_LOAD_CURRENT);
-            start_t = hal_get_time_ms();
+            uint32_t start_t = hal_get_time_ms();
             while (hal_get_time_ms() - start_t < 1200) {
                 while (s_app.state == PLAYBACK_PLAYING && hal_audio_needs_data()) {
                     audio_player_process();

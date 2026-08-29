@@ -100,7 +100,7 @@ int hal_audio_init(uint32_t sample_rate, uint8_t channels) {
 bool hal_audio_needs_data(void) {
     if (s_dev == 0 || !s_running) return false;
     uint32_t queued_bytes = SDL_GetQueuedAudioSize(s_dev);
-    uint32_t target_queued = (s_rate * s_channels * sizeof(int16_t) * 120) / 1000; // ~120ms target
+    uint32_t target_queued = (s_rate * s_channels * sizeof(int16_t) * 80) / 1000; // 80ms target threshold
     if (queued_bytes == 0 && s_running) {
         s_underrun_count++;
     }
@@ -165,6 +165,12 @@ size_t hal_audio_write(const int32_t *samples, size_t sample_count) {
                 sum_sq_r += norm * norm;
                 count_r++;
             }
+        }
+
+        // Safety ceiling: if queue exceeds 150ms, wait briefly
+        uint32_t safety_max = (s_rate * s_channels * sizeof(int16_t) * 150) / 1000;
+        while (s_running && s_dev && SDL_GetQueuedAudioSize(s_dev) >= safety_max) {
+            SDL_Delay(5);
         }
 
         SDL_QueueAudio(s_dev, s16_buf, (Uint32)(chunk * sizeof(int16_t)));
