@@ -6,9 +6,17 @@
 
 #define TAG "AUDIO_I2S"
 
-#define I2S_PIN_BCK   43
-#define I2S_PIN_WS    44
-#define I2S_PIN_DOUT  1
+#ifndef I2S_PIN_BCK
+#if defined(BOARD_DENEYAP) || defined(BOARD_DENEYAP_1A_V2)
+    #define I2S_PIN_BCK   GPIO_NUM_47
+    #define I2S_PIN_WS    GPIO_NUM_18
+    #define I2S_PIN_DOUT  GPIO_NUM_21
+#else
+    #define I2S_PIN_BCK   43
+    #define I2S_PIN_WS    44
+    #define I2S_PIN_DOUT  1
+#endif
+#endif
 
 #define I2S_CHUNK_FRAMES 256
 
