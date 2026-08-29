@@ -1,4 +1,5 @@
 #include "app.h"
+#include "settings.h"
 #include "audio_player.h"
 #include "config.h"
 #include "framebuffer.h"
@@ -147,6 +148,7 @@ int main(int argc, char *argv[]) {
     uint16_t num_tracks = library_scan(STORAGE_MOUNT_POINT, &app);
     printf("Found %u tracks.\n", (unsigned)num_tracks);
 
+    settings_load(&app);
     hal_display_set_theme(THEMES[app.theme_index].fg, THEMES[app.theme_index].bg);
 
     if (test_mode) {
@@ -319,6 +321,7 @@ int main(int argc, char *argv[]) {
         last_tick = hal_get_time_ms();
     }
 
+    settings_save(&app);
     audio_player_close();
     hal_storage_unmount();
     SDL_Quit();

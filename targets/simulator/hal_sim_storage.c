@@ -38,6 +38,11 @@ size_t hal_fread(void *ptr, size_t size, size_t count, hal_file_t *file) {
     return fread(ptr, size, count, (FILE*)file);
 }
 
+size_t hal_fwrite(const void *ptr, size_t size, size_t count, hal_file_t *file) {
+    if (!file || !ptr) return 0;
+    return fwrite(ptr, size, count, (FILE*)file);
+}
+
 int hal_fseek(hal_file_t *file, long offset, int whence) {
     if (!file) return -1;
     return fseek((FILE*)file, offset, whence);

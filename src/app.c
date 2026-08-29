@@ -1,4 +1,5 @@
 #include "app.h"
+#include "settings.h"
 #include "hal/hal_audio.h"
 #include "hal/hal_display.h"
 #include "hal/hal_system.h"
@@ -282,6 +283,7 @@ static void toggle_setting(app_state_t *app) {
             break;
 #endif
     }
+    settings_save(app);
 }
 
 static app_command_t select_item(app_state_t *app) {

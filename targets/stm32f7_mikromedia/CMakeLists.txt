@@ -23,6 +23,7 @@ set(STM32F7_SRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/../../src/codecs/mp3_decoder.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../src/codecs/flac_decoder.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../src/codecs/art_decoder.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../src/settings.c
 )
 
 add_library(kopuz_stm32f7 STATIC ${STM32F7_SRCS})

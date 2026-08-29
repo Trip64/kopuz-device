@@ -1,6 +1,7 @@
 #if defined(ESP_PLATFORM)
 
 #include "app.h"
+#include "settings.h"
 #include "audio_player.h"
 #include "config.h"
 #include "framebuffer.h"
@@ -20,8 +21,11 @@ static app_state_t s_app;
 static void audio_task(void *pvParameters) {
     (void)pvParameters;
     while (1) {
-        audio_player_process();
-        vTaskDelay(pdMS_TO_TICKS(1));
+        if (s_app.state == PLAYBACK_PLAYING) {
+            audio_player_process();
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
     }
 }
 
@@ -44,7 +48,7 @@ void app_main(void) {
     audio_player_init(&s_app);
 
     library_scan(STORAGE_MOUNT_POINT, &s_app);
-    hal_display_set_theme(THEMES[s_app.theme_index].fg, THEMES[s_app.theme_index].bg);
+    settings_load(&s_app);
 
     // Audio decoding task on Core 1
     xTaskCreatePinnedToCore(audio_task, "audio_task", 16384, NULL, 5, NULL, 1);

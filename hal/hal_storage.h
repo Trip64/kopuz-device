@@ -30,6 +30,9 @@ hal_file_t* hal_fopen(const char *path, const char *mode);
 // Read from file
 size_t hal_fread(void *ptr, size_t size, size_t count, hal_file_t *file);
 
+// Write to file
+size_t hal_fwrite(const void *ptr, size_t size, size_t count, hal_file_t *file);
+
 // Seek file
 int hal_fseek(hal_file_t *file, long offset, int whence);
 

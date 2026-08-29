@@ -36,6 +36,7 @@ if(KOPUZ_TARGET STREQUAL "SIMULATOR")
         src/codecs/mp3_decoder.c
         src/codecs/flac_decoder.c
         src/codecs/art_decoder.c
+        src/settings.c
     )
 
     set(SIM_SOURCES
