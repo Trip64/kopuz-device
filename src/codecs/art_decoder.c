@@ -16,8 +16,15 @@ bool decode_art_rgb565(const uint8_t *jpeg_bytes, size_t jpeg_len, uint16_t targ
     }
 
     int w = 0, h = 0, channels = 0;
+    if (!stbi_info_from_memory(jpeg_bytes, (int)jpeg_len, &w, &h, &channels)) {
+        return false;
+    }
+    if (w > 600 || h > 600 || w <= 0 || h <= 0) {
+        return false;
+    }
+
     unsigned char *pixels = stbi_load_from_memory(jpeg_bytes, (int)jpeg_len, &w, &h, &channels, 3);
-    if (!pixels || w <= 0 || h <= 0) {
+    if (!pixels) {
         return false;
     }
 
