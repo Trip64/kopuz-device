@@ -7,9 +7,7 @@
 #include <string.h>
 
 #if HAS_BLE_AUDIO
-#if defined(ESP_PLATFORM) || defined(TARGET_ESP32S3) || defined(TARGET_ESP32)
 #include "targets/esp32s3_tdisplay/hal_esp32_ble.h"
-#endif
 #endif
 
 #include "hal/hal_storage.h"

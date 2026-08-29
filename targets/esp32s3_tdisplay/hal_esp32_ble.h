@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include "app.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,6 +26,20 @@ void hal_ble_audio_set_volume(uint8_t vol);
 
 // Get the name of the currently connected Bluetooth device (or "Searching...")
 const char* hal_ble_audio_get_device_name(void);
+
+// Start / Stop scanning for nearby Bluetooth earphones
+void hal_ble_audio_start_scan(void);
+void hal_ble_audio_stop_scan(void);
+bool hal_ble_audio_is_scanning(void);
+
+// Retrieve list of discovered earphones (returns count up to max_count)
+uint8_t hal_ble_audio_get_discovered(bt_device_entry_t *devices, uint8_t max_count);
+
+// Connect to a discovered earphone by index in discovered list
+bool hal_ble_audio_connect_device(uint8_t index);
+
+// Disconnect from currently connected earphone
+void hal_ble_audio_disconnect(void);
 
 #ifdef __cplusplus
 }

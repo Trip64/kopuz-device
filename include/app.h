@@ -50,8 +50,16 @@ typedef enum {
     SCREEN_ARTISTS,
     SCREEN_ARTIST_TRACKS,
     SCREEN_SETTINGS,
+    SCREEN_BLUETOOTH,
     SCREEN_BSOD
 } screen_t;
+
+typedef struct {
+    char name[32];
+    uint8_t bda[6];
+    int8_t rssi;
+    bool connected;
+} bt_device_entry_t;
 
 typedef enum {
     REPEAT_OFF = 0,
@@ -96,6 +104,7 @@ typedef struct {
     uint16_t group_sel;
     uint16_t open_group;
     uint16_t settings_sel;
+    uint16_t bt_sel;
 
     bool shuffle;
     repeat_mode_t repeat;
@@ -123,12 +132,17 @@ typedef struct {
     bool vu_enabled;
     config_store_t config_store;
 
+    // Bluetooth discovery list
+    bt_device_entry_t bt_devices[8];
+    uint8_t bt_device_count;
+    bool bt_scanning;
+
     // Crash / BSOD fields
     char stop_code[32];
     char crash_details[64];
 } app_state_t;
 
-extern const char *MENU_ITEMS[5];
+extern const char *MENU_ITEMS[];
 extern const char *SETTINGS_ITEMS[];
 
 void app_init(app_state_t *app);

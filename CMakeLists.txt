@@ -47,6 +47,7 @@ if(KOPUZ_TARGET STREQUAL "SIMULATOR")
         targets/simulator/hal_sim_power.c
         targets/simulator/hal_sim_storage.c
         targets/simulator/hal_sim_system.c
+        targets/esp32s3_tdisplay/hal_esp32_ble.c
     )
 
     add_executable(kopuz_sim

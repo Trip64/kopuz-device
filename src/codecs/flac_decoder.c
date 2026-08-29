@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <stdio.h>
 
 #define DR_FLAC_IMPLEMENTATION
 #define DR_FLAC_NO_STDIO
@@ -25,9 +26,9 @@ static size_t flac_on_read(void *pUserData, void *pBufferOut, size_t bytesToRead
 static drflac_bool32 flac_on_seek(void *pUserData, int offset, drflac_seek_origin origin) {
     flac_state_t *st = (flac_state_t*)pUserData;
     if (!st || !st->file) return DRFLAC_FALSE;
-    int whence = 0;
-    if (origin == DRFLAC_SEEK_CUR) whence = 1;
-    else if (origin == DRFLAC_SEEK_END) whence = 2;
+    int whence = SEEK_SET;
+    if (origin == DRFLAC_SEEK_CUR) whence = SEEK_CUR;
+    else if (origin == DRFLAC_SEEK_END) whence = SEEK_END;
     return (hal_fseek(st->file, (long)offset, whence) == 0) ? DRFLAC_TRUE : DRFLAC_FALSE;
 }
 
@@ -47,7 +48,7 @@ static void flac_on_meta(void *pUserData, drflac_metadata *pMetadata) {
     if (pMetadata->type == DRFLAC_METADATA_BLOCK_TYPE_PICTURE) {
         drflac_uint32 picSize = pMetadata->data.picture.pictureDataSize;
         const void *picData = pMetadata->data.picture.pPictureData;
-        if (picSize > 0 && picSize <= 512 * 1024 && picData) {
+        if (picSize > 0 && picSize <= 256 * 1024 && picData) {
             st->cover_data = (uint8_t*)malloc(picSize);
             if (st->cover_data) {
                 memcpy(st->cover_data, picData, picSize);
@@ -69,7 +70,6 @@ static int flac_decode(decoder_t *dec, int32_t *out, size_t max_samples) {
     if (frames_read == 0) return 0;
 
     size_t samples = (size_t)frames_read * ch;
-    // drflac_read_pcm_frames_s32 already returns full 32-bit scaled PCM samples
     return (int)samples;
 }
 
@@ -78,7 +78,7 @@ static bool flac_get_cover(decoder_t *dec, uint8_t **out_data, size_t *out_size)
     if (!st || !st->cover_data || st->cover_size == 0) return false;
     *out_data = st->cover_data;
     *out_size = st->cover_size;
-    st->cover_data = NULL; // transferred
+    st->cover_data = NULL; // transferred ownership
     st->cover_size = 0;
     return true;
 }
@@ -116,8 +116,16 @@ decoder_t* flac_decoder_open(const char *path) {
     }
     st->file = f;
 
+    // First attempt: open with metadata for picture extraction
     drflac *pFlac = drflac_open_with_metadata(&flac_on_read, &flac_on_seek, &flac_on_tell, &flac_on_meta, st, NULL);
     if (!pFlac) {
+        // Fallback attempt: rewind and open without metadata parsing (handles large pictures / custom metadata)
+        hal_fseek(f, 0, SEEK_SET);
+        pFlac = drflac_open(&flac_on_read, &flac_on_seek, &flac_on_tell, st, NULL);
+    }
+
+    if (!pFlac) {
+        if (st->cover_data) free(st->cover_data);
         free(st);
         hal_fclose(f);
         return NULL;
@@ -132,6 +140,7 @@ decoder_t* flac_decoder_open(const char *path) {
     decoder_t *dec = (decoder_t*)calloc(1, sizeof(decoder_t));
     if (!dec) {
         drflac_close(pFlac);
+        if (st->cover_data) free(st->cover_data);
         free(st);
         hal_fclose(f);
         return NULL;

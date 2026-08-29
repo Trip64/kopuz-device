@@ -7,10 +7,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-const char *MENU_ITEMS[5] = {"Now Playing", "Songs", "Albums", "Artists", "Settings"};
 #if HAS_BLE_AUDIO
+#include "targets/esp32s3_tdisplay/hal_esp32_ble.h"
+const char *MENU_ITEMS[6] = {"Now Playing", "Songs", "Albums", "Artists", "Bluetooth", "Settings"};
 const char *SETTINGS_ITEMS[8] = {"Shuffle", "Repeat", "Volume", "Brightness", "Theme", "Output", "Visualizer", "Storage"};
 #else
+const char *MENU_ITEMS[5] = {"Now Playing", "Songs", "Albums", "Artists", "Settings"};
 const char *SETTINGS_ITEMS[7] = {"Shuffle", "Repeat", "Volume", "Brightness", "Theme", "Visualizer", "Storage"};
 #endif
 
@@ -91,7 +93,12 @@ int8_t app_get_battery_pct(const app_state_t *app) {
 
 uint16_t app_get_list_len(const app_state_t *app) {
     switch (app->screen) {
-        case SCREEN_MENU:         return 5;
+        case SCREEN_MENU:
+#if HAS_BLE_AUDIO
+            return 6;
+#else
+            return 5;
+#endif
         case SCREEN_NOW_PLAYING:  return 0;
         case SCREEN_SONGS:        return app->queue_len;
         case SCREEN_ALBUMS:       return app->albums_len;
@@ -100,6 +107,7 @@ uint16_t app_get_list_len(const app_state_t *app) {
             return (app->open_group < app->albums_len) ? app->albums[app->open_group].count : 0;
         case SCREEN_ARTIST_TRACKS:
             return (app->open_group < app->artists_len) ? app->artists[app->open_group].count : 0;
+        case SCREEN_BLUETOOTH:    return (uint16_t)(1 + app->bt_device_count);
         case SCREEN_SETTINGS:     return (uint16_t)(sizeof(SETTINGS_ITEMS) / sizeof(SETTINGS_ITEMS[0]));
         case SCREEN_BSOD:         return 0;
     }
@@ -115,6 +123,7 @@ uint16_t app_get_current_selection(const app_state_t *app) {
         case SCREEN_ARTISTS:      return app->artists_sel;
         case SCREEN_ALBUM_TRACKS:
         case SCREEN_ARTIST_TRACKS:return app->group_sel;
+        case SCREEN_BLUETOOTH:    return app->bt_sel;
         case SCREEN_SETTINGS:     return app->settings_sel;
         case SCREEN_BSOD:         return 0;
     }
@@ -129,6 +138,7 @@ static uint16_t* get_sel_ptr(app_state_t *app) {
         case SCREEN_ARTISTS:      return &app->artists_sel;
         case SCREEN_ALBUM_TRACKS:
         case SCREEN_ARTIST_TRACKS:return &app->group_sel;
+        case SCREEN_BLUETOOTH:    return &app->bt_sel;
         case SCREEN_NOW_PLAYING:
         case SCREEN_SETTINGS:     return &app->settings_sel;
         case SCREEN_BSOD:         return &app->menu_sel;
@@ -301,8 +311,39 @@ static app_command_t select_item(app_state_t *app) {
                 case 1: app->screen = SCREEN_SONGS; break;
                 case 2: app->screen = SCREEN_ALBUMS; break;
                 case 3: app->screen = SCREEN_ARTISTS; break;
+#if HAS_BLE_AUDIO
+                case 4:
+                    app->screen = SCREEN_BLUETOOTH;
+                    app->bt_device_count = hal_ble_audio_get_discovered(app->bt_devices, 8);
+                    app->bt_sel = 0;
+                    break;
+                case 5: app->screen = SCREEN_SETTINGS; break;
+#else
                 case 4: app->screen = SCREEN_SETTINGS; break;
+#endif
             }
+            return CMD_NONE;
+
+        case SCREEN_BLUETOOTH:
+#if HAS_BLE_AUDIO
+            if (app->bt_sel == 0) {
+                app->bt_scanning = true;
+                hal_ble_audio_start_scan();
+                app->bt_device_count = hal_ble_audio_get_discovered(app->bt_devices, 8);
+            } else {
+                uint8_t dev_idx = app->bt_sel - 1;
+                if (dev_idx < app->bt_device_count) {
+                    if (app->bt_devices[dev_idx].connected) {
+                        hal_ble_audio_disconnect();
+                        app->bt_devices[dev_idx].connected = false;
+                    } else {
+                        hal_ble_audio_connect_device(dev_idx);
+                        app->output_mode = OUTPUT_BLE_AUDIO;
+                        app->bt_devices[dev_idx].connected = true;
+                    }
+                }
+            }
+#endif
             return CMD_NONE;
 
         case SCREEN_NOW_PLAYING:

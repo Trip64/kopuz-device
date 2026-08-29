@@ -117,6 +117,7 @@ static void draw_topbar(framebuffer_t *fb, const app_state_t *app) {
         case SCREEN_SONGS:        title = "SONGS"; break;
         case SCREEN_ALBUMS:       title = "ALBUMS"; break;
         case SCREEN_ARTISTS:      title = "ARTISTS"; break;
+        case SCREEN_BLUETOOTH:    title = "BLUETOOTH"; break;
         case SCREEN_SETTINGS:     title = "SETTINGS"; break;
         case SCREEN_ALBUM_TRACKS:
             if (app->open_group < app->albums_len) {
@@ -314,10 +315,30 @@ static void render_list(framebuffer_t *fb, const app_state_t *app) {
                     else if (idx == 1) icon = "#";
                     else if (idx == 2) icon = "@";
                     else if (idx == 3) icon = "~";
+#if HAS_BLE_AUDIO
                     else if (idx == 4) icon = "*";
+                    else if (idx == 5) icon = "%";
+#else
+                    else if (idx == 4) icon = "%";
+#endif
                     snprintf(line, sizeof(line), "%s %s", icon, MENU_ITEMS[idx]);
                     break;
                 }
+                case SCREEN_BLUETOOTH:
+                    if (idx == 0) {
+                        snprintf(line, sizeof(line), "[+] %s", app->bt_scanning ? "Scanning for devices..." : "Scan for Earphones");
+                    } else {
+                        uint8_t d = idx - 1;
+                        if (d < app->bt_device_count) {
+                            const char *conn = app->bt_devices[d].connected ? "* [CONNECTED] " : "  ";
+                            if (fb->width >= 200) {
+                                snprintf(line, sizeof(line), "%s%s (%ddBm)", conn, app->bt_devices[d].name, app->bt_devices[d].rssi);
+                            } else {
+                                snprintf(line, sizeof(line), "%s%s", conn, app->bt_devices[d].name);
+                            }
+                        }
+                    }
+                    break;
                 case SCREEN_SETTINGS:
                     if (fb->width <= 140) {
                         if (idx == 0) snprintf(line, sizeof(line), "Shuffle: %s", app->shuffle ? "ON" : "OFF");
