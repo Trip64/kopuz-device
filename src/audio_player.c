@@ -6,6 +6,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if HAS_BLE_AUDIO
+#if defined(ESP_PLATFORM) || defined(TARGET_ESP32S3) || defined(TARGET_ESP32)
+#include "targets/esp32s3_tdisplay/hal_esp32_ble.h"
+#endif
+#endif
+
 #include "hal/hal_storage.h"
 
 #define HW_STREAM_BUF_SIZE 4096
@@ -18,6 +24,7 @@ static decoder_t *s_decoder = NULL;
 static hal_file_t *s_raw_stream_file = NULL;
 static bool s_is_hw_stream = false;
 static int32_t s_pcm_buf[AUDIO_BUFFER_SAMPLES];
+static hal_mutex_t s_audio_mutex = NULL;
 
 static void load_current_track(void) {
     if (s_raw_stream_file) {
@@ -122,6 +129,9 @@ static void load_current_track(void) {
 
 int audio_player_init(app_state_t *app) {
     s_app = app;
+    if (!s_audio_mutex) {
+        s_audio_mutex = hal_mutex_create();
+    }
     hal_audio_init(AUDIO_DEFAULT_SAMPLE_RATE, AUDIO_CHANNELS);
     hal_audio_set_volume(app->volume);
     return 0;
@@ -129,6 +139,8 @@ int audio_player_init(app_state_t *app) {
 
 void audio_player_send_command(app_command_t cmd) {
     if (!s_app) return;
+
+    if (s_audio_mutex) hal_mutex_lock(s_audio_mutex);
 
     switch (cmd) {
         case CMD_LOAD_CURRENT:
@@ -147,25 +159,45 @@ void audio_player_send_command(app_command_t cmd) {
             if (cur && cur->duration_secs > 0 && target > cur->duration_secs) {
                 target = cur->duration_secs;
             }
-            audio_player_seek(target);
+            if (s_is_hw_stream && s_raw_stream_file) {
+                long offset = (long)target * 16000;
+                hal_fseek(s_raw_stream_file, offset, SEEK_SET);
+                s_app->position_ms = target * 1000;
+            } else if (s_decoder && s_decoder->seek) {
+                if (s_decoder->seek(s_decoder, target)) {
+                    s_app->position_ms = target * 1000;
+                }
+            }
             break;
         }
         case CMD_SEEK_BACK: {
             uint32_t cur_sec = s_app->position_ms / 1000;
             uint32_t target = (cur_sec > 5) ? (cur_sec - 5) : 0;
-            audio_player_seek(target);
+            if (s_is_hw_stream && s_raw_stream_file) {
+                long offset = (long)target * 16000;
+                hal_fseek(s_raw_stream_file, offset, SEEK_SET);
+                s_app->position_ms = target * 1000;
+            } else if (s_decoder && s_decoder->seek) {
+                if (s_decoder->seek(s_decoder, target)) {
+                    s_app->position_ms = target * 1000;
+                }
+            }
             break;
         }
         case CMD_NONE:
         default:
             break;
     }
+
+    if (s_audio_mutex) hal_mutex_unlock(s_audio_mutex);
 }
 
 void audio_player_process(void) {
     if (!s_app || s_app->state != PLAYBACK_PLAYING) {
         return;
     }
+
+    if (s_audio_mutex) hal_mutex_lock(s_audio_mutex);
 
     if (s_is_hw_stream && s_raw_stream_file) {
         // While codec internal FIFO has room, push 32-byte chunks (up to 4KB burst)
@@ -185,6 +217,7 @@ void audio_player_process(void) {
                             s_raw_stream_file = NULL;
                         }
                     }
+                    if (s_audio_mutex) hal_mutex_unlock(s_audio_mutex);
                     return;
                 }
             }
@@ -205,14 +238,26 @@ void audio_player_process(void) {
                 if (v > s_app->vu_peak[b]) s_app->vu_peak[b] = v;
             }
         }
+        if (s_audio_mutex) hal_mutex_unlock(s_audio_mutex);
         return;
     }
 
-    if (!s_decoder) return;
+    if (!s_decoder) {
+        if (s_audio_mutex) hal_mutex_unlock(s_audio_mutex);
+        return;
+    }
 
     int n = s_decoder->decode(s_decoder, s_pcm_buf, AUDIO_BUFFER_SAMPLES);
     if (n > 0) {
+#if HAS_BLE_AUDIO
+        if (s_app->output_mode == OUTPUT_BLE_AUDIO) {
+            hal_ble_audio_write(s_pcm_buf, (size_t)n);
+        } else {
+            hal_audio_write(s_pcm_buf, (size_t)n);
+        }
+#else
         hal_audio_write(s_pcm_buf, (size_t)n);
+#endif
 
         uint8_t ch = s_decoder->info.channels ? s_decoder->info.channels : 1;
         uint32_t sr = s_decoder->info.sample_rate ? s_decoder->info.sample_rate : 44100;
@@ -263,6 +308,7 @@ void audio_player_process(void) {
                 }
             }
         }
+        if (s_audio_mutex) hal_mutex_unlock(s_audio_mutex);
     } else if (n == 0) {
         app_command_t cmd = app_on_track_end(s_app);
         if (cmd == CMD_LOAD_CURRENT) {
@@ -274,6 +320,7 @@ void audio_player_process(void) {
                 s_decoder = NULL;
             }
         }
+        if (s_audio_mutex) hal_mutex_unlock(s_audio_mutex);
     } else {
         printf("Decode error\n");
         hal_audio_stop();
@@ -281,6 +328,7 @@ void audio_player_process(void) {
             s_decoder->close(s_decoder);
             s_decoder = NULL;
         }
+        if (s_audio_mutex) hal_mutex_unlock(s_audio_mutex);
         app_trigger_bsod(s_app, "ERR_STREAM_DECODE_FAILED", "Corrupt audio stream");
     }
 }
@@ -308,22 +356,25 @@ void audio_player_tick_vu(void) {
 
 bool audio_player_seek(uint32_t target_sec) {
     if (!s_app) return false;
+    if (s_audio_mutex) hal_mutex_lock(s_audio_mutex);
+    bool ret = false;
     if (s_is_hw_stream && s_raw_stream_file) {
         long offset = (long)target_sec * 16000;
         hal_fseek(s_raw_stream_file, offset, SEEK_SET);
         s_app->position_ms = target_sec * 1000;
-        return true;
+        ret = true;
+    } else if (s_decoder && s_decoder->seek) {
+        if (s_decoder->seek(s_decoder, target_sec)) {
+            s_app->position_ms = target_sec * 1000;
+            ret = true;
+        }
     }
-    if (!s_decoder || !s_decoder->seek) return false;
-
-    if (s_decoder->seek(s_decoder, target_sec)) {
-        s_app->position_ms = target_sec * 1000;
-        return true;
-    }
-    return false;
+    if (s_audio_mutex) hal_mutex_unlock(s_audio_mutex);
+    return ret;
 }
 
 void audio_player_close(void) {
+    if (s_audio_mutex) hal_mutex_lock(s_audio_mutex);
     if (s_raw_stream_file) {
         hal_fclose(s_raw_stream_file);
         s_raw_stream_file = NULL;
@@ -333,4 +384,9 @@ void audio_player_close(void) {
         s_decoder = NULL;
     }
     hal_audio_close();
+    if (s_audio_mutex) {
+        hal_mutex_unlock(s_audio_mutex);
+        hal_mutex_destroy(s_audio_mutex);
+        s_audio_mutex = NULL;
+    }
 }

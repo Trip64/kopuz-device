@@ -23,6 +23,7 @@ idf_component_register(
         "../../src/codecs/mp3_decoder.c"
         "../../src/codecs/flac_decoder.c"
         "../../src/codecs/art_decoder.c"
+        "../../src/settings.c"
     INCLUDE_DIRS
         "."
         "../../include"
@@ -36,4 +37,5 @@ idf_component_register(
         esp_timer
         freertos
         fatfs
+        bt
 )

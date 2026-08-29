@@ -27,13 +27,18 @@ int hal_audio_init(uint32_t sample_rate, uint8_t channels) {
     }
 
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
-    chan_cfg.dma_desc_num = 12;
+    chan_cfg.dma_desc_num = 16;
     chan_cfg.dma_frame_num = 512;
+    chan_cfg.auto_clear = true;
     i2s_new_channel(&chan_cfg, &s_tx_chan, NULL);
+
+    i2s_std_slot_config_t slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO);
+    slot_cfg.slot_bit_width = I2S_SLOT_BIT_WIDTH_32BIT; // 32 bits per channel (64 BCLK/frame) required by PCM5102A PLL!
+    slot_cfg.slot_mode = I2S_SLOT_MODE_STEREO;
 
     i2s_std_config_t std_cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(s_rate),
-        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
+        .slot_cfg = slot_cfg,
         .gpio_cfg = {
             .mclk = I2S_GPIO_UNUSED,
             .bclk = I2S_PIN_BCK,
@@ -64,7 +69,10 @@ size_t hal_audio_write(const int32_t *samples, size_t sample_count) {
 
         for (size_t i = 0; i < chunk; i++) {
             int32_t s = samples[done + i] >> 16;
-            buf[i] = (int16_t)((s * (int32_t)s_volume) / 100);
+            int32_t scaled = (s * (int32_t)s_volume) / 100;
+            if (scaled > 32767) scaled = 32767;
+            if (scaled < -32768) scaled = -32768;
+            buf[i] = (int16_t)scaled;
         }
 
         size_t wrote = 0;

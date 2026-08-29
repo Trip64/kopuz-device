@@ -23,6 +23,7 @@ static void audio_task(void *pvParameters) {
     while (1) {
         if (s_app.state == PLAYBACK_PLAYING) {
             audio_player_process();
+            taskYIELD();
         } else {
             vTaskDelay(pdMS_TO_TICKS(20));
         }

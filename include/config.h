@@ -79,7 +79,7 @@ typedef enum {
     #define MAX_GROUPS                64
 #endif
 
-#if defined(TARGET_NRF52) || defined(TARGET_NRF54) || defined(TARGET_ESP32)
+#if defined(TARGET_NRF52) || defined(TARGET_NRF54) || defined(TARGET_ESP32) || defined(ESP_PLATFORM) || defined(TARGET_ESP32S3)
     #define HAS_BLE_AUDIO             1
 #else
     #define HAS_BLE_AUDIO             0
