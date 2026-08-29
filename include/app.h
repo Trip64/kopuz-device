@@ -51,6 +51,7 @@ typedef enum {
     SCREEN_ARTIST_TRACKS,
     SCREEN_SETTINGS,
     SCREEN_BLUETOOTH,
+    SCREEN_CONFIRM_REBOOT,
     SCREEN_BSOD
 } screen_t;
 

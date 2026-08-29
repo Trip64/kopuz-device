@@ -6,6 +6,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(ESP_PLATFORM)
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#endif
+
 #if HAS_BLE_AUDIO
 #include "targets/esp32s3_tdisplay/hal_esp32_ble.h"
 #endif
@@ -230,6 +235,9 @@ void audio_player_process(void) {
 
     if (!s_decoder) {
         if (s_audio_mutex) hal_mutex_unlock(s_audio_mutex);
+#if defined(ESP_PLATFORM)
+        vTaskDelay(pdMS_TO_TICKS(10));
+#endif
         return;
     }
 
@@ -307,7 +315,7 @@ void audio_player_process(void) {
         if (s_audio_mutex) hal_mutex_unlock(s_audio_mutex);
     } else if (n == 0) {
         app_command_t cmd = app_on_track_end(s_app);
-        if (cmd == CMD_LOAD_CURRENT) {
+        if (cmd == CMD_LOAD_CURRENT || cmd == CMD_PLAY) {
             load_current_track();
         } else {
             hal_audio_stop();
@@ -320,7 +328,7 @@ void audio_player_process(void) {
     } else {
         printf("Warning: Stream decode error, advancing to next track\n");
         app_command_t cmd = app_on_track_end(s_app);
-        if (cmd == CMD_LOAD_CURRENT) {
+        if (cmd == CMD_LOAD_CURRENT || cmd == CMD_PLAY) {
             load_current_track();
         } else {
             hal_audio_stop();

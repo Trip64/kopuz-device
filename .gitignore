@@ -1,5 +1,6 @@
-/target
-/.embuild
-Cargo.lock
-*.bak
-.DS_Store
+build*/
+test_minimp3/
+kopuz-device-orig/
+pico-sdk/
+
+sdcard/NECTOInstaller.dmg

@@ -2,6 +2,7 @@
 
 #include "hal/hal_audio.h"
 #include "driver/i2s_std.h"
+#include "driver/gpio.h"
 #include "esp_log.h"
 
 #define TAG "AUDIO_I2S"
@@ -55,7 +56,7 @@ int hal_audio_init(uint32_t sample_rate, uint8_t channels) {
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
     chan_cfg.dma_desc_num = 8;
     chan_cfg.dma_frame_num = 480;
-
+    chan_cfg.auto_clear = true; // Prevents noise on DMA underflow
     esp_err_t e;
     if ((e = i2s_new_channel(&chan_cfg, &s_tx_chan, NULL)) != ESP_OK) {
         ESP_LOGE(TAG, "i2s_new_channel: %s", esp_err_to_name(e));
@@ -78,6 +79,12 @@ int hal_audio_init(uint32_t sample_rate, uint8_t channels) {
             },
         },
     };
+
+    // Forcefully reset the GPIOs in case UART0 or other peripherals have claimed them via IO MUX.
+    // This solves the silent output bug if sdkconfig doesn't route console to USB.
+    if (I2S_PIN_BCK >= 0) gpio_reset_pin((gpio_num_t)I2S_PIN_BCK);
+    if (I2S_PIN_WS >= 0) gpio_reset_pin((gpio_num_t)I2S_PIN_WS);
+    if (I2S_PIN_DOUT >= 0) gpio_reset_pin((gpio_num_t)I2S_PIN_DOUT);
 
     if ((e = i2s_channel_init_std_mode(s_tx_chan, &std_cfg)) != ESP_OK) {
         ESP_LOGE(TAG, "i2s_channel_init_std_mode: %s", esp_err_to_name(e));

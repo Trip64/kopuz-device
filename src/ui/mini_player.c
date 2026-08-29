@@ -6,6 +6,10 @@
 #include <string.h>
 #include <ctype.h>
 
+#if HAS_BLE_AUDIO
+#include "targets/esp32s3_tdisplay/hal_esp32_ble.h"
+#endif
+
 #if defined(TARGET_SIMULATOR)
 bool hal_sim_display_is_color(void);
 #endif
@@ -311,31 +315,34 @@ static void render_list(framebuffer_t *fb, const app_state_t *app) {
             switch (app->screen) {
                 case SCREEN_MENU: {
                     const char *icon = " ";
-                    if (idx == 0) icon = ">";
-                    else if (idx == 1) icon = "#";
-                    else if (idx == 2) icon = "@";
-                    else if (idx == 3) icon = "~";
+                    const char *name = "";
+                    if (idx == 0) { icon = ">"; name = "Now Playing"; }
+                    else if (idx == 1) { icon = "#"; name = "Songs"; }
+                    else if (idx == 2) { icon = "@"; name = "Albums"; }
+                    else if (idx == 3) { icon = "~"; name = "Artists"; }
 #if HAS_BLE_AUDIO
-                    else if (idx == 4) icon = "*";
-                    else if (idx == 5) icon = "%";
+                    else if (idx == 4) {
+                        if (app->output_mode == OUTPUT_BLE_AUDIO) { icon = "*"; name = "Bluetooth"; }
+                        else { icon = "%"; name = "Settings"; }
+                    }
+                    else if (idx == 5) { icon = "%"; name = "Settings"; }
 #else
-                    else if (idx == 4) icon = "%";
+                    else if (idx == 4) { icon = "%"; name = "Settings"; }
 #endif
-                    snprintf(line, sizeof(line), "%s %s", icon, MENU_ITEMS[idx]);
+                    snprintf(line, sizeof(line), "%s %s", icon, name);
                     break;
                 }
                 case SCREEN_BLUETOOTH:
                     if (idx == 0) {
+                        snprintf(line, sizeof(line), "Status: %s", hal_ble_audio_is_connected() ? hal_ble_audio_get_device_name() : "Disconnected");
+                    } else if (idx == 1) {
                         snprintf(line, sizeof(line), "[+] %s", app->bt_scanning ? "Scanning for devices..." : "Scan for Earphones");
                     } else {
-                        uint8_t d = idx - 1;
-                        if (d < app->bt_device_count) {
-                            const char *conn = app->bt_devices[d].connected ? "* [CONNECTED] " : "  ";
-                            if (fb->width >= 200) {
-                                snprintf(line, sizeof(line), "%s%s (%ddBm)", conn, app->bt_devices[d].name, app->bt_devices[d].rssi);
-                            } else {
-                                snprintf(line, sizeof(line), "%s%s", conn, app->bt_devices[d].name);
-                            }
+                        uint8_t d_idx = idx - 2;
+                        if (d_idx < app->bt_device_count) {
+                            snprintf(line, sizeof(line), "%s %s",
+                                     app->bt_devices[d_idx].connected ? "[x]" : "   ",
+                                     app->bt_devices[d_idx].name);
                         }
                     }
                     break;
@@ -347,7 +354,7 @@ static void render_list(framebuffer_t *fb, const app_state_t *app) {
                         else if (idx == 3) snprintf(line, sizeof(line), "Bright:  %u%%", app->brightness);
                         else if (idx == 4) snprintf(line, sizeof(line), "Theme:   Mono");
 #if HAS_BLE_AUDIO
-                        else if (idx == 5) snprintf(line, sizeof(line), "Output:  %s", (app->output_mode == OUTPUT_BLE_AUDIO) ? "BLE" : "I2S");
+                        else if (idx == 5) snprintf(line, sizeof(line), "Out: %s(Restart)", (app->output_mode == OUTPUT_BLE_AUDIO) ? "BLE" : "I2S");
                         else if (idx == 6) snprintf(line, sizeof(line), "VU:      %s", app->vu_enabled ? "ON" : "OFF");
                         else if (idx == 7) snprintf(line, sizeof(line), "Save:    %s", (app->config_store == CONFIG_STORE_EEPROM) ? "EEPROM" : "SD");
 #else
@@ -360,21 +367,16 @@ static void render_list(framebuffer_t *fb, const app_state_t *app) {
                         else if (idx == 2) snprintf(line, sizeof(line), "Volume:        %u%%", app->volume);
                         else if (idx == 3) snprintf(line, sizeof(line), "Brightness:    %u%%", app->brightness);
                         else if (idx == 4) {
-                            if (fb->width == 400 && fb->height == 240) {
-                                snprintf(line, sizeof(line), "Theme:      [Reflective MIP]");
-                            } else if (fb->width == 296 && fb->height == 128) {
-                                snprintf(line, sizeof(line), "Theme:      [Tri-Color BWR]");
-                            } else {
-                                snprintf(line, sizeof(line), "Theme:      %s", THEMES[app->theme_index].name);
-                            }
+                            if (THEMES_COUNT > 1) snprintf(line, sizeof(line), "Theme:      [%s]", app->theme_index == 6 ? "Mint" : THEMES[app->theme_index].name);
+                            else snprintf(line, sizeof(line), "Theme:      [Mono]");
                         }
 #if HAS_BLE_AUDIO
-                        else if (idx == 5) snprintf(line, sizeof(line), "Output:     [%s]", (app->output_mode == OUTPUT_BLE_AUDIO) ? "BLE AUDIO" : "I2S DAC");
+                        else if (idx == 5) snprintf(line, sizeof(line), "Output:     [%s] (Restart required)", (app->output_mode == OUTPUT_BLE_AUDIO) ? "Bluetooth A2DP" : "I2S DAC");
                         else if (idx == 6) snprintf(line, sizeof(line), "Visualizer: [%s]", app->vu_enabled ? "ON" : "OFF");
-                        else if (idx == 7) snprintf(line, sizeof(line), "Storage:    [%s]", (app->config_store == CONFIG_STORE_EEPROM) ? "EEPROM (NVS)" : "SD CARD (.CFG)");
+                        else if (idx == 7) snprintf(line, sizeof(line), "Config:     [%s]", (app->config_store == CONFIG_STORE_EEPROM) ? "EEPROM" : "SD Card");
 #else
                         else if (idx == 5) snprintf(line, sizeof(line), "Visualizer: [%s]", app->vu_enabled ? "ON" : "OFF");
-                        else if (idx == 6) snprintf(line, sizeof(line), "Storage:    [%s]", (app->config_store == CONFIG_STORE_EEPROM) ? "EEPROM (NVS)" : "SD CARD (.CFG)");
+                        else if (idx == 6) snprintf(line, sizeof(line), "Config:     [%s]", (app->config_store == CONFIG_STORE_EEPROM) ? "EEPROM" : "SD Card");
 #endif
                     }
                     break;

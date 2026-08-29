@@ -48,38 +48,7 @@ static void scan_host_audio_devices(void) {
         }
     }
 
-#if defined(__APPLE__)
-    // 2. On macOS, query paired and nearby Bluetooth audio accessories
-    FILE *fp = popen("system_profiler SPBluetoothDataType 2>/dev/null | awk '/Connected:|Not Connected:/,0' | grep -E '^[ ]{10}[A-Za-z0-9]' | sed 's/^[ ]*//' | sed 's/:$//'", "r");
-    if (fp) {
-        char line[128];
-        while (fgets(line, sizeof(line), fp) && s_discovered_count < MAX_DISCOVERED_DEVICES) {
-            char *nl = strchr(line, '\n');
-            if (nl) *nl = '\0';
-            char *cr = strchr(line, '\r');
-            if (cr) *cr = '\0';
-
-            // Filter out internal metadata labels
-            if (strlen(line) > 1 && strcmp(line, "Connected") != 0 && strcmp(line, "Not Connected") != 0 &&
-                strstr(line, "Bluetooth") == NULL && strstr(line, "Address") == NULL && strstr(line, "Services") == NULL) {
-                bool exists = false;
-                for (int j = 0; j < s_discovered_count; j++) {
-                    if (strcasecmp(s_discovered[j].name, line) == 0) {
-                        exists = true;
-                        break;
-                    }
-                }
-                if (!exists) {
-                    snprintf(s_discovered[s_discovered_count].name, sizeof(s_discovered[s_discovered_count].name), "%s", line);
-                    s_discovered[s_discovered_count].rssi = (int8_t)(-52 - ((s_discovered_count % 3) * 8));
-                    s_discovered[s_discovered_count].connected = (s_connected && (strcmp(line, s_connected_name) == 0));
-                    s_discovered_count++;
-                }
-            }
-        }
-        pclose(fp);
-    }
-#endif
+    // Remove offline/historical macOS bluetooth devices so we only list what can actually play
 
     printf("[SIM_BT] Scanned %u real host devices:\n", s_discovered_count);
     for (uint8_t i = 0; i < s_discovered_count; i++) {
