@@ -1,4 +1,5 @@
 #include "hal_esp32_ble.h"
+#include "hal/hal_audio.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -316,8 +317,7 @@ void hal_ble_audio_deinit(void) {
 }
 
 size_t hal_ble_audio_write(const int32_t *samples, size_t sample_count) {
-    (void)samples;
-    return sample_count;
+    return hal_audio_write(samples, sample_count);
 }
 
 bool hal_ble_audio_is_connected(void) {
