@@ -58,45 +58,23 @@ static void load_current_track(void) {
 
     s_decoder = decoder_open(track->path);
     if (!s_decoder) {
-        printf("Failed to open audio: %s\n", track->path);
-        app_trigger_bsod(s_app, "ERR_FILE_CORRUPT_OR_UNSUPPORTED", track->title);
+        printf("Warning: Failed to open audio track: %s\n", track->path);
+        snprintf(s_app->format_badge, sizeof(s_app->format_badge), "UNSUPPORTED");
+        s_app->dirty = true;
         return;
     }
 
-#if defined(PICO_RP2040)
-    if (s_decoder->info.sample_rate > 96000) {
-        char err_detail[64];
-        snprintf(err_detail, sizeof(err_detail), "%uHz exceeds RP2040 ceiling", (unsigned)s_decoder->info.sample_rate);
-        s_decoder->close(s_decoder);
-        s_decoder = NULL;
-        app_trigger_bsod(s_app, "ERR_SAMPLE_RATE_TOO_HIGH", err_detail);
-        return;
-    }
-#endif
-
-    if (s_decoder->info.channels == 0 || s_decoder->info.channels > 2) {
-        char err_detail[64];
-        snprintf(err_detail, sizeof(err_detail), "%u channels (max 2ch)", (unsigned)s_decoder->info.channels);
-        s_decoder->close(s_decoder);
-        s_decoder = NULL;
-        app_trigger_bsod(s_app, "ERR_UNSUPPORTED_CHANNELS", err_detail);
-        return;
-    }
-
-    if (s_decoder->info.sample_rate < 8000 || s_decoder->info.sample_rate > 192000) {
-        char err_detail[64];
-        snprintf(err_detail, sizeof(err_detail), "%u Hz out of bounds", (unsigned)s_decoder->info.sample_rate);
-        s_decoder->close(s_decoder);
-        s_decoder = NULL;
-        app_trigger_bsod(s_app, "ERR_INVALID_SAMPLE_RATE", err_detail);
-        return;
-    }
+    uint32_t sr = s_decoder->info.sample_rate;
+    if (sr < 8000) sr = 8000;
+    if (sr > 192000) sr = 192000;
+    uint8_t ch = s_decoder->info.channels ? s_decoder->info.channels : 2;
+    if (ch > 2) ch = 2;
 
     if (s_decoder->info.duration_secs > 0) {
         s_app->queue[s_app->current_index].duration_secs = s_decoder->info.duration_secs;
     }
 
-    hal_audio_init(s_decoder->info.sample_rate, s_decoder->info.channels);
+    hal_audio_init(sr, ch);
     hal_audio_set_volume(s_app->volume);
 
     s_app->art_valid = false;
@@ -110,19 +88,21 @@ static void load_current_track(void) {
     }
 
     const char *fmt_str = "WAV";
-    if (strstr(track->path, ".flac")) fmt_str = "FLAC";
-    else if (strstr(track->path, ".mp3")) fmt_str = "MP3";
+    if (strstr(track->path, ".flac") || strstr(track->path, ".FLAC")) fmt_str = "FLAC";
+    else if (strstr(track->path, ".mp3") || strstr(track->path, ".MP3")) fmt_str = "MP3";
     uint32_t khz = (s_decoder->info.sample_rate + 500) / 1000;
     uint8_t bps = s_decoder->info.bits_per_sample ? s_decoder->info.bits_per_sample : 16;
-    snprintf(s_app->format_badge, sizeof(s_app->format_badge), "%s %ub/%uk",
-             fmt_str, (unsigned)bps, (unsigned)khz);
+    bool is_hires = (bps >= 24 || s_decoder->info.sample_rate >= 88200);
+
+    snprintf(s_app->format_badge, sizeof(s_app->format_badge), "%s %ub/%uk%s",
+             fmt_str, (unsigned)bps, (unsigned)khz, is_hires ? " HR" : "");
 
     s_app->position_ms = 0;
     s_app->dirty = true;
-    printf("Playing %s (%u Hz, %u ch, %u sec) [%s]\n",
+    printf("Playing %s (%u Hz, %u ch, %u sec, %u-bit) [%s]\n",
            track->path, (unsigned)s_decoder->info.sample_rate,
            (unsigned)s_decoder->info.channels, (unsigned)s_decoder->info.duration_secs,
-           s_app->format_badge);
+           (unsigned)bps, s_app->format_badge);
 }
 
 int audio_player_init(app_state_t *app) {
@@ -320,14 +300,18 @@ void audio_player_process(void) {
         }
         if (s_audio_mutex) hal_mutex_unlock(s_audio_mutex);
     } else {
-        printf("Decode error\n");
-        hal_audio_stop();
-        if (s_decoder) {
-            s_decoder->close(s_decoder);
-            s_decoder = NULL;
+        printf("Warning: Stream decode error, advancing to next track\n");
+        app_command_t cmd = app_on_track_end(s_app);
+        if (cmd == CMD_LOAD_CURRENT) {
+            load_current_track();
+        } else {
+            hal_audio_stop();
+            if (s_decoder) {
+                s_decoder->close(s_decoder);
+                s_decoder = NULL;
+            }
         }
         if (s_audio_mutex) hal_mutex_unlock(s_audio_mutex);
-        app_trigger_bsod(s_app, "ERR_STREAM_DECODE_FAILED", "Corrupt audio stream");
     }
 }
 
