@@ -508,45 +508,55 @@ static void render_now_playing(framebuffer_t *fb, const app_state_t *app) {
         fb_draw_text(fb, vx, 48, vol_str, &font_6x10, false);
     } else if (fb->width <= 140 && fb->height > 80) {
         // Square 128x128 OLED Layout (Pixel-perfect 128px bounds)
-        fb_draw_text_trunc(fb, 2, 14, cur->title, 20, &font_6x10, false);
-        fb_draw_text_trunc(fb, 2, 25, cur->artist, 20, &font_6x10, false);
-        fb_draw_text_trunc(fb, 2, 36, cur->album, 20, &font_6x10, false);
+        fb_draw_text_trunc(fb, 2, 14, cur->title, 20, &font_8x13_bold, false);
+        fb_draw_text_trunc(fb, 2, 29, cur->artist, 20, &font_6x10, false);
+        fb_draw_text_trunc(fb, 2, 40, cur->album, 20, &font_6x10, false);
 
-        draw_spectrum(fb, 2, 48, 18, app);
+        draw_spectrum(fb, 2, 53, 16, app);
 
         char tags[32] = {0};
-        if (app->shuffle) strcat(tags, "S ");
-        if (app->repeat != REPEAT_OFF) strcat(tags, "R ");
+        if (app->shuffle) strcat(tags, "SHUF ");
+        if (app->repeat != REPEAT_OFF) {
+            char rpt[16];
+            snprintf(rpt, sizeof(rpt), "RPT:%s ", repeat_str(app->repeat));
+            strcat(tags, rpt);
+        }
         if (app->format_badge[0] != '\0') {
             strcat(tags, app->format_badge);
         }
-        fb_draw_text(fb, 50, 48, tags, &font_6x10, false);
+        fb_draw_text(fb, 50, 53, tags, &font_6x10, false);
+
+        // Upcoming queue hint at y=74..98
+        uint16_t upcoming[2];
+        size_t up_count = app_get_upcoming(app, upcoming, 2);
+        if (up_count > 0) {
+            for (size_t k = 0; k < up_count; k++) {
+                uint16_t trk_idx = upcoming[k];
+                if (trk_idx < app->queue_len) {
+                    char next_str[64];
+                    snprintf(next_str, sizeof(next_str), "> %s", app->queue[trk_idx].title);
+                    fb_draw_text_trunc(fb, 2, 74 + (int16_t)k * 11, next_str, 20, &font_6x10, false);
+                }
+            }
+        }
 
         float frac = 0.0f;
         if (cur->duration_secs > 0) {
             frac = (float)(app->position_ms / 1000) / (float)cur->duration_secs;
         }
-        draw_progress_bar(fb, 2, 70, fb->width - 4, frac);
+        draw_progress_bar(fb, 2, 102, fb->width - 4, frac);
 
         char tline[32];
         char pos_str[16], dur_str[16];
         format_mmss(app->position_ms / 1000, pos_str, sizeof(pos_str));
         format_mmss(cur->duration_secs, dur_str, sizeof(dur_str));
         snprintf(tline, sizeof(tline), "%s %s/%s", state_glyph(app->state), pos_str, dur_str);
-        fb_draw_text(fb, 2, 78, tline, &font_6x10, false);
+        fb_draw_text(fb, 2, 110, tline, &font_6x10, false);
 
         char vol_str[16];
         snprintf(vol_str, sizeof(vol_str), "v%u", app->volume);
         int16_t vx = fb->width - (int16_t)strlen(vol_str) * font_6x10.width - 2;
-        fb_draw_text(fb, vx, 78, vol_str, &font_6x10, false);
-
-        // Upcoming track hint
-        uint16_t upcoming[1];
-        if (app_get_upcoming(app, upcoming, 1) > 0 && upcoming[0] < app->queue_len) {
-            char next_str[64];
-            snprintf(next_str, sizeof(next_str), "> %s", app->queue[upcoming[0]].title);
-            fb_draw_text_trunc(fb, 2, 94, next_str, 20, &font_6x10, false);
-        }
+        fb_draw_text(fb, vx, 110, vol_str, &font_6x10, false);
     } else if (fb->width >= 360) {
         // Widescreen Pro Dashboard Layout (Sharp 400x240, STM32F7 480x272)
         int16_t ax = 6;
@@ -785,7 +795,7 @@ static void render_mini_footer(framebuffer_t *fb, const app_state_t *app) {
         fb_draw_text(fb, sx, footer_y + 3, st, &font_6x10, false);
     }
 
-    if (fb->height > 64) {
+    if (fb->height > 128) {
         int16_t by = fb->height - 7;
         float frac = 0.0f;
         if (dur_secs > 0) {

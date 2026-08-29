@@ -84,50 +84,44 @@ void ui_render_bsod(framebuffer_t *fb, const char *stop_code, const char *detail
         if (details && details[0]) {
             char det_buf[32];
             snprintf(det_buf, sizeof(det_buf), "INFO: %s", details);
-            fb_draw_text_trunc(fb, 2, 23, det_buf, 20, &font_6x10, false);
+            fb_draw_text_trunc(fb, 2, 24, det_buf, 20, &font_6x10, false);
         } else {
-            fb_draw_text(fb, 2, 23, "kopuz.org/err", &font_6x10, false);
+            fb_draw_text(fb, 2, 24, "System halted", &font_6x10, false);
         }
 
-        fb_draw_text(fb, 2, 35, "kopuz.org/err", &font_6x10, false);
+        fb_draw_text(fb, 2, 36, "Restart device", &font_6x10, false);
 
         fb_fill_rect(fb, 0, 48, fb->width, 14, true);
-        fb_draw_text(fb, 2, 50, "PRESS TO REBOOT", &font_6x10, true);
+        fb_draw_text(fb, (fb->width - 15 * font_6x10.width) / 2, 50, "PRESS TO REBOOT", &font_6x10, true);
         return;
     }
 
-    // 2. Square 128x128 OLED Layout
+    // 2. Square 128x128 OLED Layout (Pixel-fitted 128px bounds)
     if (fb->width <= 140 && fb->height > 80) {
         fb_draw_text(fb, 2, 2, ":( CRASH", &font_8x13_bold, false);
-        fb_draw_line(fb, 0, 15, fb->width, 15, true);
+        fb_draw_line(fb, 0, 14, fb->width, 14, true);
 
-        int16_t ty = 18;
+        int16_t ty = 17;
         char stop_buf[32];
         snprintf(stop_buf, sizeof(stop_buf), "STOP: %s", sc);
         draw_wrapped_line(fb, 2, &ty, stop_buf, fb->width - 4, 2, &font_6x10);
 
-        ty += 2;
+        ty += 1;
         if (details && details[0] && ty < 55) {
             char det_buf[64];
             snprintf(det_buf, sizeof(det_buf), "INFO: %s", details);
             draw_wrapped_line(fb, 2, &ty, det_buf, fb->width - 4, 2, &font_6x10);
         }
 
-        char url[128];
-        if (qr_payload && qr_payload[0]) {
-            snprintf(url, sizeof(url), "%s", qr_payload);
-        } else {
-            snprintf(url, sizeof(url), "https://kopuz.org/err?c=%s", sc);
-        }
-
+        const char *qr_data = (qr_payload && qr_payload[0]) ? qr_payload : sc;
         uint8_t qrcode[qrcodegen_BUFFER_LEN_FOR_VERSION(3)];
         uint8_t tempBuffer[qrcodegen_BUFFER_LEN_FOR_VERSION(3)];
-        if (qrcodegen_encodeText(url, tempBuffer, qrcode, qrcodegen_Ecc_LOW, 1, 3, qrcodegen_Mask_AUTO, true)) {
+        if (qrcodegen_encodeText(qr_data, tempBuffer, qrcode, qrcodegen_Ecc_LOW, 1, 3, qrcodegen_Mask_AUTO, true)) {
             int qr_size = qrcodegen_getSize(qrcode);
             int box_w = qr_size + 4;
             int16_t qr_x = (fb->width - box_w) / 2;
-            int16_t qr_y = fb->height - box_w - 18;
-            if (qr_y >= ty + 2) {
+            int16_t qr_y = 64;
+            if (qr_y >= ty + 2 && qr_y + box_w <= fb->height - 16) {
                 fb_fill_rect(fb, qr_x, qr_y, box_w, box_w, true);
                 for (int qy = 0; qy < qr_size; qy++) {
                     for (int qx = 0; qx < qr_size; qx++) {
@@ -140,22 +134,17 @@ void ui_render_bsod(framebuffer_t *fb, const char *stop_code, const char *detail
         }
 
         fb_draw_line(fb, 0, fb->height - 14, fb->width, fb->height - 14, true);
-        fb_draw_text(fb, 2, fb->height - 11, "PRESS TO REBOOT", &font_6x10, false);
+        fb_draw_text(fb, (fb->width - 15 * font_6x10.width) / 2, fb->height - 11, "PRESS TO REBOOT", &font_6x10, false);
         return;
     }
 
     // 3. Wide / Standard Screens (296x128 E-Paper, 320x170 T-Display, 320x240, 400x240, 480x272)
-    char url[128];
-    if (qr_payload && qr_payload[0]) {
-        snprintf(url, sizeof(url), "%s", qr_payload);
-    } else {
-        snprintf(url, sizeof(url), "https://kopuz.org/err?c=%s", sc);
-    }
+    const char *qr_data = (qr_payload && qr_payload[0]) ? qr_payload : sc;
 
     uint8_t qrcode[qrcodegen_BUFFER_LEN_FOR_VERSION(5)];
     uint8_t tempBuffer[qrcodegen_BUFFER_LEN_FOR_VERSION(5)];
     bool ok = qrcodegen_encodeText(
-        url,
+        qr_data,
         tempBuffer,
         qrcode,
         qrcodegen_Ecc_LOW,
