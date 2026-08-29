@@ -1,5 +1,6 @@
 #include "hal/hal_input.h"
 #include "sim_display.h"
+#include "sim_dac.h"
 #include <SDL.h>
 #include <stdbool.h>
 
@@ -73,6 +74,14 @@ btn_event_t hal_input_poll(void) {
                     hal_sim_display_set_mode(DISP_PROFILE_EPAPER_BWR_296X128);
                     g_sim_profile_changed = true;
                     break;
+                case SDLK_F8:
+                    hal_sim_dac_print_status();
+                    break;
+                case SDLK_F9: {
+                    sim_dac_model_t next_dac = (hal_sim_dac_get_model() + 1) % SIM_DAC_MODEL_COUNT;
+                    hal_sim_dac_set_model(next_dac);
+                    break;
+                }
                 case SDLK_TAB: {
                     uint8_t next = (hal_sim_display_get_mode() + 1) % hal_sim_display_get_mode_count();
                     hal_sim_display_set_mode(next);
