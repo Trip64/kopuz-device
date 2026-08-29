@@ -67,20 +67,27 @@ static void extract_id3_cover(hal_file_t *f, mp3_state_t *st) {
 
         if (fsize == 0 || cur_pos + 10 + fsize > (uint32_t)audio_start) break;
 
-        if (memcmp(fhdr, "APIC", 4) == 0 && fsize > 12 && fsize <= 64 * 1024) {
+        if (memcmp(fhdr, "APIC", 4) == 0 && fsize > 12 && fsize <= 512 * 1024) {
             uint8_t *apic_data = (uint8_t*)malloc(fsize);
             if (apic_data) {
                 if (hal_fread(apic_data, 1, fsize, f) == fsize) {
+                    uint8_t enc = apic_data[0];
                     size_t p = 1;
                     while (p < fsize && apic_data[p] != 0) p++;
                     p++;
                     if (p < fsize) p++;
-                    while (p < fsize && apic_data[p] != 0) p++;
-                    p++;
+
+                    if (enc == 1 || enc == 2) {
+                        while (p + 1 < fsize && !(apic_data[p] == 0 && apic_data[p + 1] == 0)) p++;
+                        p += 2;
+                    } else {
+                        while (p < fsize && apic_data[p] != 0) p++;
+                        p++;
+                    }
 
                     if (p < fsize) {
                         size_t img_len = fsize - p;
-                        if (img_len > 0 && img_len <= 64 * 1024) {
+                        if (img_len > 0 && img_len <= 512 * 1024) {
                             st->cover_data = (uint8_t*)malloc(img_len);
                             if (st->cover_data) {
                                 memcpy(st->cover_data, &apic_data[p], img_len);

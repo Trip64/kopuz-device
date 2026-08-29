@@ -19,7 +19,7 @@ bool decode_art_rgb565(const uint8_t *jpeg_bytes, size_t jpeg_len, uint16_t targ
     if (!stbi_info_from_memory(jpeg_bytes, (int)jpeg_len, &w, &h, &channels)) {
         return false;
     }
-    if (w > 600 || h > 600 || w <= 0 || h <= 0) {
+    if (w > 2048 || h > 2048 || w <= 0 || h <= 0) {
         return false;
     }
 
