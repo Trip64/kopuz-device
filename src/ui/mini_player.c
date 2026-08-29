@@ -715,7 +715,6 @@ static void render_now_playing(framebuffer_t *fb, const app_state_t *app) {
         int16_t art_size = (fb->height <= 130) ? 48 : ((fb->height <= 180) ? 56 : 80);
 
         if (app->art_valid && app->art_rgb565) {
-            fb_draw_rect(fb, ax, ay, art_size, art_size, true);
 #if defined(TARGET_SIMULATOR)
             if (!hal_sim_display_is_color()) {
                 draw_dithered_art_1bpp(fb, ax + 1, ay + 1, art_size - 2, app->art_rgb565, app->art_size ? app->art_size : 80);
@@ -731,20 +730,13 @@ static void render_now_playing(framebuffer_t *fb, const app_state_t *app) {
             fb_draw_text(fb, ax + (art_size - gw) / 2, ay + (art_size - font_8x13_bold.height) / 2, g, &font_8x13_bold, false);
         }
 
-        int16_t by = fb->height - 24;
-        int16_t vu_y = ay + art_size + 6;
-        int16_t vu_max_h = by - vu_y - 4;
-        if (vu_max_h > 46) vu_max_h = 46;
-        if (vu_max_h >= 12) {
-            draw_spectrum(fb, ax + 1, vu_y, vu_max_h, app);
-        }
-
         int16_t tx = ax + art_size + 8;
-        size_t cap = (size_t)((fb->width - tx - 4) / font_6x10.width);
+        size_t cap_bold = (size_t)((fb->width - tx - 4) / font_8x13_bold.width);
+        size_t cap_small = (size_t)((fb->width - tx - 4) / font_6x10.width);
 
-        fb_draw_text_trunc(fb, tx, ay, cur->title, cap, &font_8x13_bold, false);
-        fb_draw_text_trunc(fb, tx, ay + 15, cur->artist, cap, &font_6x10, false);
-        fb_draw_text_trunc(fb, tx, ay + 27, cur->album, cap, &font_6x10, false);
+        fb_draw_text_trunc(fb, tx, ay, cur->title, cap_bold, &font_8x13_bold, false);
+        fb_draw_text_trunc(fb, tx, ay + 15, cur->artist, cap_small, &font_6x10, false);
+        fb_draw_text_trunc(fb, tx, ay + 27, cur->album, cap_small, &font_6x10, false);
 
         char tags[64] = {0};
         if (app->shuffle) strcat(tags, "SHUF ");
@@ -754,23 +746,28 @@ static void render_now_playing(framebuffer_t *fb, const app_state_t *app) {
         if (app->format_badge[0] != '\0') {
             strcat(tags, app->format_badge);
         }
-        fb_draw_text(fb, tx, ay + 39, tags, &font_6x10, false);
+        fb_draw_text_trunc(fb, tx, ay + 39, tags, cap_small, &font_6x10, false);
 
-        int16_t q_top = ay + 54;
-        int16_t q_avail = by - 2 - q_top;
-        int16_t rows = q_avail / 12;
+        int16_t by = fb->height - 22;
+
+        // UP NEXT queue below the art and metadata block
+        int16_t q_top = ay + art_size + 4;
+        if (q_top < ay + 52) q_top = ay + 52;
+        int16_t q_avail = by - 2 - (q_top + 10);
+        int16_t rows = (q_avail > 0) ? (q_avail / 10) : 0;
 
         if (rows > 0) {
-            uint16_t upcoming[5];
-            size_t up_count = app_get_upcoming(app, upcoming, rows > 5 ? 5 : (size_t)rows);
+            uint16_t upcoming[6];
+            size_t up_count = app_get_upcoming(app, upcoming, rows > 6 ? 6 : (size_t)rows);
             if (up_count > 0) {
-                fb_draw_text(fb, tx, q_top, "UP NEXT:", &font_6x10, false);
+                fb_draw_text(fb, 4, q_top, "UP NEXT", &font_6x10, false);
+                size_t q_cap = (size_t)((fb->width - 8) / font_6x10.width);
                 for (size_t k = 0; k < up_count; k++) {
                     char row_str[96];
                     uint16_t trk_idx = upcoming[k];
                     if (trk_idx < app->queue_len) {
                         snprintf(row_str, sizeof(row_str), "%u. %s", (unsigned)(k + 1), app->queue[trk_idx].title);
-                        fb_draw_text_trunc(fb, tx, q_top + 10 + (int16_t)k * 11, row_str, cap, &font_6x10, false);
+                        fb_draw_text_trunc(fb, 4, q_top + 10 + (int16_t)k * 10, row_str, q_cap, &font_6x10, false);
                     }
                 }
             }
@@ -787,12 +784,12 @@ static void render_now_playing(framebuffer_t *fb, const app_state_t *app) {
         format_mmss(app->position_ms / 1000, pos_str, sizeof(pos_str));
         format_mmss(cur->duration_secs, dur_str, sizeof(dur_str));
         snprintf(tline, sizeof(tline), "%s/%s", pos_str, dur_str);
-        fb_draw_text(fb, 4, by + 8, tline, &font_6x10, false);
+        fb_draw_text(fb, 4, by + 7, tline, &font_6x10, false);
 
         char vol_str[16];
         snprintf(vol_str, sizeof(vol_str), "vol %u", app->volume);
         int16_t vx = fb->width - (int16_t)strlen(vol_str) * font_6x10.width - 2;
-        fb_draw_text(fb, vx, by + 8, vol_str, &font_6x10, false);
+        fb_draw_text(fb, vx, by + 7, vol_str, &font_6x10, false);
     }
 }
 

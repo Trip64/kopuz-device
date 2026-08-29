@@ -23,7 +23,7 @@ static void audio_task(void *pvParameters) {
     while (1) {
         if (s_app.state == PLAYBACK_PLAYING) {
             audio_player_process();
-            taskYIELD();
+            vTaskDelay(pdMS_TO_TICKS(1));
         } else {
             vTaskDelay(pdMS_TO_TICKS(20));
         }
@@ -69,8 +69,9 @@ void app_main(void) {
         app_check_memory_safety(&s_app);
 
         uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        bool progress_due = false;
         if (s_app.state == PLAYBACK_PLAYING && (now - last_progress >= 500)) {
-            s_app.dirty = true;
+            progress_due = true;
             last_progress = now;
         }
 
@@ -88,6 +89,15 @@ void app_main(void) {
                 );
             }
             s_app.dirty = false;
+        } else if (progress_due) {
+            ui_render(&fb, &s_app);
+            if (s_app.screen == SCREEN_NOW_PLAYING) {
+                const uint16_t band = 26;
+                hal_display_flush_region(fb.buffer, 0, LCD_HEIGHT - band, LCD_WIDTH, band);
+            } else {
+                const uint16_t footer_h = (LCD_HEIGHT <= 64) ? 12 : ((LCD_HEIGHT <= 128) ? 18 : 24);
+                hal_display_flush_region(fb.buffer, 0, LCD_HEIGHT - footer_h, LCD_WIDTH, footer_h);
+            }
         }
 
         vTaskDelay(pdMS_TO_TICKS(16));

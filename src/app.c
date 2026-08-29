@@ -580,11 +580,13 @@ void app_check_memory_safety(app_state_t *app) {
         app_trigger_bsod(app, "ERR_RAM_THRESHOLD_EXCEEDED", msg);
     }
 #elif defined(ESP_PLATFORM)
-    size_t free_heap = (size_t)(327680 - hal_system_get_ram_used_bytes());
-    if (free_heap < 20480) {
+    extern uint32_t esp_get_free_heap_size(void);
+    uint32_t free_heap = esp_get_free_heap_size();
+    if (free_heap < 16384) {
         char msg[64];
-        snprintf(msg, sizeof(msg), "Free heap %uB < 20KB limit", (unsigned)free_heap);
+        snprintf(msg, sizeof(msg), "Free heap %uB < 16KB limit", (unsigned)free_heap);
         app_trigger_bsod(app, "ERR_HEAP_EXHAUSTED", msg);
     }
 #endif
 }
+

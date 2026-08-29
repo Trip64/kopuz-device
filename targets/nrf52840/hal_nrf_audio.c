@@ -60,4 +60,20 @@ void hal_audio_close(void) {
     s_running = false;
 }
 
+bool hal_audio_has_hardware_codec(void) {
+    return false;
+}
+
+size_t hal_audio_write_stream(const uint8_t *data, size_t len) {
+    (void)data;
+    (void)len;
+    return 0;
+}
+
+void hal_audio_beep(uint16_t freq_hz, uint16_t duration_ms) {
+    (void)freq_hz;
+    (void)duration_ms;
+}
+
 #endif
+

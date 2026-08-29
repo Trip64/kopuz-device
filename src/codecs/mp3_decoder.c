@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
 
@@ -27,11 +28,11 @@ typedef struct {
 // Extract ID3v2 APIC (Cover Art) if present
 static void extract_id3_cover(hal_file_t *f, mp3_state_t *st) {
     uint8_t header[10];
-    if (hal_fseek(f, 0, 0) != 0) return;
+    if (hal_fseek(f, 0, SEEK_SET) != 0) return;
     if (hal_fread(header, 1, 10, f) != 10) return;
 
     if (memcmp(header, "ID3", 3) != 0) {
-        hal_fseek(f, 0, 0);
+        hal_fseek(f, 0, SEEK_SET);
         return;
     }
 
@@ -41,66 +42,60 @@ static void extract_id3_cover(hal_file_t *f, mp3_state_t *st) {
                         ((uint32_t)(header[8] & 0x7F) << 7)  |
                         ((uint32_t)(header[9] & 0x7F));
 
-    if (tag_size == 0 || tag_size > 4 * 1024 * 1024) {
-        hal_fseek(f, 10 + tag_size, 0);
-        return;
-    }
+    long audio_start = 10 + tag_size + ((header[5] & 0x10) ? 10 : 0);
 
-    // Read ID3 tag payload into buffer to look for APIC
-    uint8_t *tag_buf = (uint8_t*)malloc(tag_size);
-    if (!tag_buf) {
-        hal_fseek(f, 10 + tag_size, 0);
-        return;
-    }
+    if (tag_size > 0 && tag_size <= 256 * 1024) {
+        uint8_t *tag_buf = (uint8_t*)malloc(tag_size);
+        if (tag_buf) {
+            if (hal_fread(tag_buf, 1, tag_size, f) == tag_size) {
+                size_t offset = 0;
+                while (offset + 10 < tag_size) {
+                    const char *id = (const char*)&tag_buf[offset];
+                    if (id[0] == 0) break;
 
-    if (hal_fread(tag_buf, 1, tag_size, f) == tag_size) {
-        size_t offset = 0;
-        while (offset + 10 < tag_size) {
-            const char *id = (const char*)&tag_buf[offset];
-            if (id[0] == 0) break; // Padding reached
-
-            uint32_t frame_sz;
-            if (ver == 4) {
-                frame_sz = ((uint32_t)(tag_buf[offset + 4] & 0x7F) << 21) |
-                           ((uint32_t)(tag_buf[offset + 5] & 0x7F) << 14) |
-                           ((uint32_t)(tag_buf[offset + 6] & 0x7F) << 7)  |
-                           ((uint32_t)(tag_buf[offset + 7] & 0x7F));
-            } else {
-                frame_sz = ((uint32_t)tag_buf[offset + 4] << 24) |
-                           ((uint32_t)tag_buf[offset + 5] << 16) |
-                           ((uint32_t)tag_buf[offset + 6] << 8)  |
-                           ((uint32_t)tag_buf[offset + 7]);
-            }
-
-            if (offset + 10 + frame_sz > tag_size) break;
-
-            if (memcmp(id, "APIC", 4) == 0 && frame_sz > 12) {
-                const uint8_t *frame_data = &tag_buf[offset + 10];
-                size_t p = 1; // skip encoding byte
-                while (p < frame_sz && frame_data[p] != 0) p++; // skip MIME
-                p++; // skip MIME null
-                if (p < frame_sz) p++; // skip pic type
-                while (p < frame_sz && frame_data[p] != 0) p++; // skip description
-                p++; // skip description null
-
-                if (p < frame_sz) {
-                    size_t img_len = frame_sz - p;
-                    // Cap cover at 512KB
-                    if (img_len > 0 && img_len <= 512 * 1024) {
-                        st->cover_data = (uint8_t*)malloc(img_len);
-                        if (st->cover_data) {
-                            memcpy(st->cover_data, &frame_data[p], img_len);
-                            st->cover_size = img_len;
-                        }
+                    uint32_t frame_sz;
+                    if (ver == 4) {
+                        frame_sz = ((uint32_t)(tag_buf[offset + 4] & 0x7F) << 21) |
+                                   ((uint32_t)(tag_buf[offset + 5] & 0x7F) << 14) |
+                                   ((uint32_t)(tag_buf[offset + 6] & 0x7F) << 7)  |
+                                   ((uint32_t)(tag_buf[offset + 7] & 0x7F));
+                    } else {
+                        frame_sz = ((uint32_t)tag_buf[offset + 4] << 24) |
+                                   ((uint32_t)tag_buf[offset + 5] << 16) |
+                                   ((uint32_t)tag_buf[offset + 6] << 8)  |
+                                   ((uint32_t)tag_buf[offset + 7]);
                     }
+
+                    if (offset + 10 + frame_sz > tag_size || frame_sz == 0) break;
+
+                    if (memcmp(id, "APIC", 4) == 0 && frame_sz > 12) {
+                        const uint8_t *frame_data = &tag_buf[offset + 10];
+                        size_t p = 1;
+                        while (p < frame_sz && frame_data[p] != 0) p++;
+                        p++;
+                        if (p < frame_sz) p++;
+                        while (p < frame_sz && frame_data[p] != 0) p++;
+                        p++;
+
+                        if (p < frame_sz) {
+                            size_t img_len = frame_sz - p;
+                            if (img_len > 0 && img_len <= 128 * 1024) {
+                                st->cover_data = (uint8_t*)malloc(img_len);
+                                if (st->cover_data) {
+                                    memcpy(st->cover_data, &frame_data[p], img_len);
+                                    st->cover_size = img_len;
+                                }
+                            }
+                        }
+                        break;
+                    }
+                    offset += 10 + frame_sz;
                 }
-                break;
             }
-            offset += 10 + frame_sz;
+            free(tag_buf);
         }
     }
-    free(tag_buf);
-    hal_fseek(f, 10 + tag_size, 0);
+    hal_fseek(f, audio_start, SEEK_SET);
 }
 
 static int mp3_decode(decoder_t *dec, int32_t *out, size_t max_samples) {
@@ -110,7 +105,6 @@ static int mp3_decode(decoder_t *dec, int32_t *out, size_t max_samples) {
     size_t samples_written = 0;
 
     while (samples_written < max_samples) {
-        // Drain any already-decoded PCM from previous frame
         if (st->pcm_pos < st->pcm_avail) {
             size_t n = st->pcm_avail - st->pcm_pos;
             if (n > max_samples - samples_written) {
@@ -125,8 +119,6 @@ static int mp3_decode(decoder_t *dec, int32_t *out, size_t max_samples) {
             continue;
         }
 
-        // Need to decode next MP3 frame
-        // Refill stream buffer if low
         if (st->stream_buf_pos > 0 && st->stream_buf_len > st->stream_buf_pos) {
             memmove(st->stream_buf, &st->stream_buf[st->stream_buf_pos], st->stream_buf_len - st->stream_buf_pos);
             st->stream_buf_len -= st->stream_buf_pos;
@@ -148,10 +140,11 @@ static int mp3_decode(decoder_t *dec, int32_t *out, size_t max_samples) {
 
         size_t available_bytes = st->stream_buf_len - st->stream_buf_pos;
         if (available_bytes == 0) {
-            break; // EOF
+            break;
         }
 
         mp3dec_frame_info_t info;
+        memset(&info, 0, sizeof(info));
         int frame_samples = mp3dec_decode_frame(
             &st->mp3d,
             &st->stream_buf[st->stream_buf_pos],
@@ -163,8 +156,11 @@ static int mp3_decode(decoder_t *dec, int32_t *out, size_t max_samples) {
         if (info.frame_bytes > 0) {
             st->stream_buf_pos += (size_t)info.frame_bytes;
         } else {
-            // Skip 1 byte if can't sync frame
-            st->stream_buf_pos++;
+            if (st->eof) {
+                st->stream_buf_pos = st->stream_buf_len;
+            } else {
+                st->stream_buf_pos++;
+            }
         }
 
         if (frame_samples > 0) {
@@ -183,7 +179,7 @@ static bool mp3_get_cover(decoder_t *dec, uint8_t **out_data, size_t *out_size) 
     if (!st || !st->cover_data || st->cover_size == 0) return false;
     *out_data = st->cover_data;
     *out_size = st->cover_size;
-    st->cover_data = NULL; // ownership transferred
+    st->cover_data = NULL;
     st->cover_size = 0;
     return true;
 }
@@ -194,11 +190,10 @@ static bool mp3_seek(decoder_t *dec, uint32_t target_sec) {
     size_t total_sz = hal_fsize(st->file);
     if (total_sz == 0 || dec->info.duration_secs == 0) return false;
 
-    // Estimate file position based on target seconds and total duration
     uint64_t target_offset = ((uint64_t)target_sec * total_sz) / dec->info.duration_secs;
     if (target_offset >= total_sz) target_offset = total_sz > 1024 ? (total_sz - 1024) : 0;
 
-    hal_fseek(st->file, (long)target_offset, 0);
+    hal_fseek(st->file, (long)target_offset, SEEK_SET);
     st->stream_buf_len = 0;
     st->stream_buf_pos = 0;
     st->pcm_pos = 0;
@@ -232,10 +227,37 @@ decoder_t* mp3_decoder_open(const char *path) {
     st->file = f;
     mp3dec_init(&st->mp3d);
 
-    // Extract embedded cover art
     extract_id3_cover(f, st);
 
-    // Calculate approximate duration based on file size and bitrate
+    st->stream_buf_len = hal_fread(st->stream_buf, 1, sizeof(st->stream_buf), f);
+    if (st->stream_buf_len == 0) {
+        st->eof = true;
+    }
+
+    uint32_t sample_rate = 44100;
+    uint8_t channels = 2;
+
+    if (st->stream_buf_len > 0) {
+        mp3dec_frame_info_t info;
+        memset(&info, 0, sizeof(info));
+        int frame_samples = mp3dec_decode_frame(
+            &st->mp3d,
+            st->stream_buf,
+            (int)st->stream_buf_len,
+            st->pcm_frame,
+            &info
+        );
+        if (info.frame_bytes > 0) {
+            st->stream_buf_pos = (size_t)info.frame_bytes;
+        }
+        if (frame_samples > 0) {
+            st->pcm_avail = (size_t)frame_samples * (size_t)info.channels;
+            st->pcm_pos = 0;
+            if (info.hz > 0) sample_rate = (uint32_t)info.hz;
+            if (info.channels > 0) channels = (uint8_t)info.channels;
+        }
+    }
+
     size_t file_sz = hal_fsize(f);
     uint32_t approx_duration = (file_sz > 128 * 1024) ? (uint32_t)((file_sz * 8) / (192 * 1000)) : 0;
 
@@ -247,8 +269,8 @@ decoder_t* mp3_decoder_open(const char *path) {
         return NULL;
     }
 
-    dec->info.sample_rate = 44100;
-    dec->info.channels = 2;
+    dec->info.sample_rate = sample_rate;
+    dec->info.channels = channels;
     dec->info.bits_per_sample = 16;
     dec->info.duration_secs = approx_duration;
     dec->decode = mp3_decode;

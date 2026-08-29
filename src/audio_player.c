@@ -24,6 +24,9 @@ static bool s_is_hw_stream = false;
 static int32_t s_pcm_buf[AUDIO_BUFFER_SAMPLES];
 static hal_mutex_t s_audio_mutex = NULL;
 
+static uint32_t s_current_sr = 0;
+static uint8_t s_current_ch = 0;
+
 static void load_current_track(void) {
     if (s_raw_stream_file) {
         hal_fclose(s_raw_stream_file);
@@ -44,6 +47,8 @@ static void load_current_track(void) {
             s_is_hw_stream = true;
             s_hw_buf_len = 0;
             s_hw_buf_pos = 0;
+            s_current_sr = 44100;
+            s_current_ch = 2;
             hal_audio_init(44100, 2);
             hal_audio_set_volume(s_app->volume);
 
@@ -74,6 +79,8 @@ static void load_current_track(void) {
         s_app->queue[s_app->current_index].duration_secs = s_decoder->info.duration_secs;
     }
 
+    s_current_sr = sr;
+    s_current_ch = ch;
     hal_audio_init(sr, ch);
     hal_audio_set_volume(s_app->volume);
 
@@ -110,6 +117,8 @@ int audio_player_init(app_state_t *app) {
     if (!s_audio_mutex) {
         s_audio_mutex = hal_mutex_create();
     }
+    s_current_sr = AUDIO_DEFAULT_SAMPLE_RATE;
+    s_current_ch = AUDIO_CHANNELS;
     hal_audio_init(AUDIO_DEFAULT_SAMPLE_RATE, AUDIO_CHANNELS);
     hal_audio_set_volume(app->volume);
     return 0;
@@ -178,7 +187,6 @@ void audio_player_process(void) {
     if (s_audio_mutex) hal_mutex_lock(s_audio_mutex);
 
     if (s_is_hw_stream && s_raw_stream_file) {
-        // While codec internal FIFO has room, push 32-byte chunks (up to 4KB burst)
         int loops = 0;
         while (hal_audio_needs_data() && loops++ < 128) {
             if (s_hw_buf_pos >= s_hw_buf_len) {
@@ -227,6 +235,18 @@ void audio_player_process(void) {
 
     int n = s_decoder->decode(s_decoder, s_pcm_buf, AUDIO_BUFFER_SAMPLES);
     if (n > 0) {
+        uint8_t ch = s_decoder->info.channels ? s_decoder->info.channels : 2;
+        if (ch > 2) ch = 2;
+        uint32_t sr = s_decoder->info.sample_rate ? s_decoder->info.sample_rate : 44100;
+        if (sr < 8000) sr = 8000;
+        if (sr > 192000) sr = 192000;
+
+        if (sr != s_current_sr || ch != s_current_ch) {
+            s_current_sr = sr;
+            s_current_ch = ch;
+            hal_audio_init(sr, ch);
+        }
+
 #if HAS_BLE_AUDIO
         if (s_app->output_mode == OUTPUT_BLE_AUDIO) {
             hal_ble_audio_write(s_pcm_buf, (size_t)n);
@@ -237,8 +257,6 @@ void audio_player_process(void) {
         hal_audio_write(s_pcm_buf, (size_t)n);
 #endif
 
-        uint8_t ch = s_decoder->info.channels ? s_decoder->info.channels : 1;
-        uint32_t sr = s_decoder->info.sample_rate ? s_decoder->info.sample_rate : 44100;
         size_t frames = (size_t)n / ch;
         s_app->position_ms += (uint32_t)(((uint64_t)frames * 1000) / sr);
 
