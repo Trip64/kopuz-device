@@ -34,7 +34,7 @@ static esp_err_t i2s_apply_clock(uint32_t sample_rate) {
 
 int hal_audio_init(uint32_t sample_rate, uint8_t channels) {
     s_sample_rate = sample_rate ? sample_rate : 44100;
-    s_channels = channels ? channels : 2;
+    s_channels = channels ? channels : 1;
 
     if (s_inited) {
         if (s_running) {
@@ -53,9 +53,8 @@ int hal_audio_init(uint32_t sample_rate, uint8_t channels) {
     }
 
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
-    chan_cfg.dma_desc_num = 12;
+    chan_cfg.dma_desc_num = 8;
     chan_cfg.dma_frame_num = 480;
-    chan_cfg.auto_clear = true;
 
     esp_err_t e;
     if ((e = i2s_new_channel(&chan_cfg, &s_tx_chan, NULL)) != ESP_OK) {
@@ -72,6 +71,11 @@ int hal_audio_init(uint32_t sample_rate, uint8_t channels) {
             .ws   = I2S_PIN_WS,
             .dout = I2S_PIN_DOUT,
             .din  = I2S_GPIO_UNUSED,
+            .invert_flags = {
+                .mclk_inv = false,
+                .bclk_inv = false,
+                .ws_inv   = false,
+            },
         },
     };
 
@@ -98,7 +102,7 @@ size_t hal_audio_write(const int32_t *samples, size_t sample_count) {
         s_running = true;
     }
 
-    uint8_t ch = s_channels ? s_channels : 2;
+    uint8_t ch = s_channels ? s_channels : 1;
     size_t frames = sample_count / ch;
     int32_t scratch[I2S_CHUNK_FRAMES * 2];
     size_t done = 0;

@@ -121,7 +121,7 @@ static int mp3_decode(decoder_t *dec, int32_t *out, size_t max_samples) {
             }
             for (size_t i = 0; i < n; i++) {
                 int16_t s16 = st->pcm_frame[st->pcm_pos + i];
-                out[samples_written + i] = (int32_t)((uint32_t)s16 << 16);
+                out[samples_written + i] = ((int32_t)s16) << 16;
             }
             st->pcm_pos += n;
             samples_written += n;
