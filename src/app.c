@@ -9,9 +9,9 @@
 
 const char *MENU_ITEMS[5] = {"Now Playing", "Songs", "Albums", "Artists", "Settings"};
 #if HAS_BLE_AUDIO
-const char *SETTINGS_ITEMS[7] = {"Shuffle", "Repeat", "Volume", "Brightness", "Theme", "Output", "Visualizer"};
+const char *SETTINGS_ITEMS[8] = {"Shuffle", "Repeat", "Volume", "Brightness", "Theme", "Output", "Visualizer", "Storage"};
 #else
-const char *SETTINGS_ITEMS[6] = {"Shuffle", "Repeat", "Volume", "Brightness", "Theme", "Visualizer"};
+const char *SETTINGS_ITEMS[7] = {"Shuffle", "Repeat", "Volume", "Brightness", "Theme", "Visualizer", "Storage"};
 #endif
 
 static void shuffle_keep_first(uint16_t *order, uint16_t n, uint16_t chosen_pos) {
@@ -60,6 +60,7 @@ void app_init(app_state_t *app) {
     app->theme_index = 0;
     app->battery_mv = -1;
     app->vu_enabled = true;
+    app->config_store = CONFIG_STORE_EEPROM;
     app->dirty = true;
 
     // Allocate album art box buffer (RGB565)
@@ -277,9 +278,15 @@ static void toggle_setting(app_state_t *app) {
         case 6: // Visualizer
             app->vu_enabled = !app->vu_enabled;
             break;
+        case 7: // Storage
+            app->config_store = (app->config_store == CONFIG_STORE_EEPROM) ? CONFIG_STORE_SD : CONFIG_STORE_EEPROM;
+            break;
 #else
         case 5: // Visualizer
             app->vu_enabled = !app->vu_enabled;
+            break;
+        case 6: // Storage
+            app->config_store = (app->config_store == CONFIG_STORE_EEPROM) ? CONFIG_STORE_SD : CONFIG_STORE_EEPROM;
             break;
 #endif
     }

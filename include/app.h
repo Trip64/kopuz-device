@@ -64,6 +64,11 @@ typedef enum {
     OUTPUT_BLE_AUDIO
 } audio_output_mode_t;
 
+typedef enum {
+    CONFIG_STORE_EEPROM = 0,
+    CONFIG_STORE_SD = 1
+} config_store_t;
+
 typedef struct {
     track_t *queue;
     uint16_t queue_len;
@@ -116,6 +121,7 @@ typedef struct {
 
     audio_output_mode_t output_mode;
     bool vu_enabled;
+    config_store_t config_store;
 
     // Crash / BSOD fields
     char stop_code[32];

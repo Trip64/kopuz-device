@@ -328,8 +328,10 @@ static void render_list(framebuffer_t *fb, const app_state_t *app) {
 #if HAS_BLE_AUDIO
                         else if (idx == 5) snprintf(line, sizeof(line), "Output:  %s", (app->output_mode == OUTPUT_BLE_AUDIO) ? "BLE" : "I2S");
                         else if (idx == 6) snprintf(line, sizeof(line), "VU:      %s", app->vu_enabled ? "ON" : "OFF");
+                        else if (idx == 7) snprintf(line, sizeof(line), "Save:    %s", (app->config_store == CONFIG_STORE_EEPROM) ? "EEPROM" : "SD");
 #else
                         else if (idx == 5) snprintf(line, sizeof(line), "VU:      %s", app->vu_enabled ? "ON" : "OFF");
+                        else if (idx == 6) snprintf(line, sizeof(line), "Save:    %s", (app->config_store == CONFIG_STORE_EEPROM) ? "EEPROM" : "SD");
 #endif
                     } else {
                         if (idx == 0) snprintf(line, sizeof(line), "Shuffle:    [%s]", app->shuffle ? "ON" : "OFF");
@@ -348,8 +350,10 @@ static void render_list(framebuffer_t *fb, const app_state_t *app) {
 #if HAS_BLE_AUDIO
                         else if (idx == 5) snprintf(line, sizeof(line), "Output:     [%s]", (app->output_mode == OUTPUT_BLE_AUDIO) ? "BLE AUDIO" : "I2S DAC");
                         else if (idx == 6) snprintf(line, sizeof(line), "Visualizer: [%s]", app->vu_enabled ? "ON" : "OFF");
+                        else if (idx == 7) snprintf(line, sizeof(line), "Storage:    [%s]", (app->config_store == CONFIG_STORE_EEPROM) ? "EEPROM (NVS)" : "SD CARD (.CFG)");
 #else
                         else if (idx == 5) snprintf(line, sizeof(line), "Visualizer: [%s]", app->vu_enabled ? "ON" : "OFF");
+                        else if (idx == 6) snprintf(line, sizeof(line), "Storage:    [%s]", (app->config_store == CONFIG_STORE_EEPROM) ? "EEPROM (NVS)" : "SD CARD (.CFG)");
 #endif
                     }
                     break;
