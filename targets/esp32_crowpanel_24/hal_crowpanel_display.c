@@ -16,6 +16,7 @@
 #include <string.h>
 
 #define LCD_CLOCK_HZ (16 * 1000 * 1000)
+#define LCD_PIO_CHUNK_BYTES 64
 
 static const char *TAG = "crow_lcd";
 static spi_device_handle_t s_lcd = NULL;
@@ -56,11 +57,19 @@ static esp_err_t transmit(bool data_mode, const void *bytes, size_t length) {
     if (!s_lcd || !bytes || length == 0) return ESP_ERR_INVALID_ARG;
     gpio_set_level(CROW_LCD_DC, data_mode ? 1 : 0);
 
-    spi_transaction_t transaction;
-    memset(&transaction, 0, sizeof(transaction));
-    transaction.length = length * 8;
-    transaction.tx_buffer = bytes;
-    return spi_device_polling_transmit(s_lcd, &transaction);
+    const uint8_t *cursor = bytes;
+    while (length > 0) {
+        size_t chunk = length > LCD_PIO_CHUNK_BYTES ? LCD_PIO_CHUNK_BYTES : length;
+        spi_transaction_t transaction;
+        memset(&transaction, 0, sizeof(transaction));
+        transaction.length = chunk * 8;
+        transaction.tx_buffer = cursor;
+        esp_err_t error = spi_device_polling_transmit(s_lcd, &transaction);
+        if (error != ESP_OK) return error;
+        cursor += chunk;
+        length -= chunk;
+    }
+    return ESP_OK;
 }
 
 static esp_err_t send_command(uint8_t command) {
@@ -124,7 +133,14 @@ int hal_display_init(void) {
         .quadhd_io_num = -1,
         .max_transfer_sz = LCD_WIDTH * 2,
     };
-    esp_err_t error = spi_bus_initialize(CROW_LCD_HOST, &bus_config, SPI_DMA_CH_AUTO);
+    /*
+     * Keep the LCD on programmed I/O. The original ESP32 has only two SPI DMA
+     * channels and ESP-IDF 6.1 can fault while unwinding a failed automatic
+     * allocation when the independent SD bus asks for the second channel.
+     * Our synchronous, one-scanline LCD writes do not require DMA, leaving a
+     * channel available for SDSPI and avoiding that driver failure path.
+     */
+    esp_err_t error = spi_bus_initialize(CROW_LCD_HOST, &bus_config, SPI_DMA_DISABLED);
     if (error != ESP_OK) {
         ESP_LOGE(TAG, "LCD SPI bus initialization failed: %s", esp_err_to_name(error));
         return -1;
