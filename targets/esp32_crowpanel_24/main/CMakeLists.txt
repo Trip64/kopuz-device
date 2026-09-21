@@ -1,0 +1,50 @@
+idf_component_register(
+    SRCS
+        "../main_crowpanel.c"
+        "../hal_crowpanel_display.c"
+        "../hal_crowpanel_audio.c"
+        "../hal_crowpanel_input.c"
+        "../hal_crowpanel_system.c"
+        "../hal_crowpanel_power.c"
+        "../hal_crowpanel_storage.c"
+        "../../../src/app.c"
+        "../../../src/audio_player.c"
+        "../../../src/library/library.c"
+        "../../../src/ui/framebuffer.c"
+        "../../../src/ui/mini_player.c"
+        "../../../src/ui/themes.c"
+        "../../../src/ui/bsod.c"
+        "../../../src/ui/qrcodegen.c"
+        "../../../src/fonts/font_6x10.c"
+        "../../../src/fonts/font_8x13_bold.c"
+        "../../../src/codecs/decoder.c"
+        "../../../src/codecs/wav_decoder.c"
+        "../../../src/codecs/mp3_decoder.c"
+        "../../../src/codecs/flac_decoder.c"
+        "../../../src/codecs/art_decoder.c"
+        "../../../src/settings.c"
+    INCLUDE_DIRS
+        ".."
+        "../../.."
+        "../../../include"
+        "../../../hal"
+        "../../../src"
+        "../../../src/codecs"
+    REQUIRES
+        driver
+        esp_timer
+        freertos
+        fatfs
+)
+
+target_compile_definitions(${COMPONENT_LIB} PRIVATE
+    TARGET_CROWPANEL_DIS03024H=1
+    KOPUZ_DISABLE_BLE_AUDIO=1
+)
+
+target_compile_options(${COMPONENT_LIB} PRIVATE
+    -Wall
+    -Wextra
+    -Wno-unused-parameter
+    -Wno-unused-function
+)

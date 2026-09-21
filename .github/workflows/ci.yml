@@ -39,3 +39,37 @@ jobs:
         run: |
           python3 tools/create_test_audio.py
           ./build/kopuz_sim --test
+
+  crowpanel-esp32:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: ${{ runner.os }}-platformio-${{ hashFiles('targets/esp32_crowpanel_24/platformio.ini') }}
+
+      - name: Install PlatformIO
+        run: python -m pip install platformio==6.1.19
+
+      - name: Build CrowPanel DIS03024H firmware
+        run: pio run -d targets/esp32_crowpanel_24
+
+      - name: Save flashable binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: kopuz-crowpanel-dis03024h-v21
+          path: |
+            targets/esp32_crowpanel_24/.pio/build/crowpanel-dis03024h-v21/bootloader.bin
+            targets/esp32_crowpanel_24/.pio/build/crowpanel-dis03024h-v21/partitions.bin
+            targets/esp32_crowpanel_24/.pio/build/crowpanel-dis03024h-v21/firmware.bin

@@ -336,6 +336,7 @@ static void render_list(framebuffer_t *fb, const app_state_t *app) {
                     break;
                 }
                 case SCREEN_BLUETOOTH:
+#if HAS_BLE_AUDIO
                     if (idx == 0) {
                         snprintf(line, sizeof(line), "Status: %s", hal_ble_audio_is_connected() ? hal_ble_audio_get_device_name() : "Disconnected");
                     } else if (idx == 1) {
@@ -348,6 +349,9 @@ static void render_list(framebuffer_t *fb, const app_state_t *app) {
                                      app->bt_devices[d_idx].name);
                         }
                     }
+#else
+                    snprintf(line, sizeof(line), "Bluetooth unavailable");
+#endif
                     break;
                 case SCREEN_SETTINGS:
                     if (fb->width <= 140) {
@@ -436,7 +440,7 @@ static void render_list(framebuffer_t *fb, const app_state_t *app) {
                 if (master == app->current_index && app->state != PLAYBACK_STOPPED) {
                     m = state_glyph(app->state);
                 }
-                char title_buf[64];
+                char title_buf[72];
                 snprintf(title_buf, sizeof(title_buf), "%s %s", m, app->queue[master].title);
                 size_t t_cap = (size_t)((fb->width - 170) / font_6x10.width);
                 fb_draw_text_trunc(fb, 6, y + 1, title_buf, t_cap, &font_6x10, is_selected);
@@ -529,7 +533,7 @@ static void render_now_playing(framebuffer_t *fb, const app_state_t *app) {
         }
         draw_progress_bar(fb, 2, 40, fb->width - 4, frac);
 
-        char tline[32];
+        char tline[40];
         char pos_str[16], dur_str[16];
         format_mmss(app->position_ms / 1000, pos_str, sizeof(pos_str));
         format_mmss(cur->duration_secs, dur_str, sizeof(dur_str));
@@ -567,7 +571,7 @@ static void render_now_playing(framebuffer_t *fb, const app_state_t *app) {
             for (size_t k = 0; k < up_count; k++) {
                 uint16_t trk_idx = upcoming[k];
                 if (trk_idx < app->queue_len) {
-                    char next_str[64];
+                    char next_str[72];
                     snprintf(next_str, sizeof(next_str), "> %s", app->queue[trk_idx].title);
                     fb_draw_text_trunc(fb, 2, 74 + (int16_t)k * 11, next_str, 20, &font_6x10, false);
                 }
@@ -580,7 +584,7 @@ static void render_now_playing(framebuffer_t *fb, const app_state_t *app) {
         }
         draw_progress_bar(fb, 2, 102, fb->width - 4, frac);
 
-        char tline[32];
+        char tline[40];
         char pos_str[16], dur_str[16];
         format_mmss(app->position_ms / 1000, pos_str, sizeof(pos_str));
         format_mmss(cur->duration_secs, dur_str, sizeof(dur_str));
@@ -713,7 +717,7 @@ static void render_now_playing(framebuffer_t *fb, const app_state_t *app) {
             fb_draw_text(fb, mid_x, by + 8, mid_title, &font_6x10, false);
         }
 
-        char tline_right[32];
+        char tline_right[40];
         snprintf(tline_right, sizeof(tline_right), "-%s / %s", rem_str, dur_str);
         int16_t rx_t = fb->width - (int16_t)strlen(tline_right) * font_6x10.width - 4;
         fb_draw_text(fb, rx_t, by + 8, tline_right, &font_6x10, false);

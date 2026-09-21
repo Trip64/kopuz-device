@@ -9,6 +9,7 @@ The simulator is the reference implementation today. Hardware targets are under 
 | Target | Status | Notes |
 | --- | --- | --- |
 | Desktop simulator | Tested | Built and exercised in CI with SDL2, sanitizers, unit tests, and a playback smoke test. |
+| Elecrow CrowPanel 2.4 V2.1 | Build-tested demo | Dedicated DIS03024H display, SD, button, and flashing configuration; physical validation is the next step. |
 | LilyGO T-Display S3 | Experimental | ESP-IDF project and drivers are present; requires on-device build and electrical validation. |
 | RP2040 / RP2350 | Experimental | Display/audio foundations are present; MicroSD directory support is not complete. |
 | STM32F746 mikromedia | Integration scaffold | Board-specific drivers are present, but the repository does not yet provide a complete vendor SDK/toolchain package. |
@@ -126,6 +127,14 @@ idf.py -p /dev/ttyACM0 flash monitor
 
 This target still requires physical validation before release use.
 
+## CrowPanel 2.4-inch build
+
+The Elecrow DIS03024H V2.1 target is under
+[`targets/esp32_crowpanel_24`](targets/esp32_crowpanel_24). It uses the classic
+ESP32-WROOM-32-N4, separate SPI controllers for its ILI9341V display and SD
+card, a conservative 4 MHz SD clock, and 115200-baud uploads. See the target
+README for the exact build, flashing, card preparation, and recovery steps.
+
 ## Other hardware targets
 
 The RP2040/RP2350, nRF52840, and STM32F7 directories contain useful board code, but they are not yet covered by CI or hardware-in-the-loop tests. See [CONNECTIONS.md](CONNECTIONS.md) for the intended wiring and [DESIGN.md](DESIGN.md) for the architecture and current constraints.
@@ -162,8 +171,9 @@ The emergency queue now holds only eight tracks instead of duplicating the full 
 
 ## Near-term roadmap
 
-1. Validate and stabilize the ESP32-S3 build on physical hardware.
-2. Finish RP2040 MicroSD/FatFs integration and add a reproducible SDK build.
-3. Add real MP3 and FLAC fixtures to automated decoder tests.
-4. Measure stack, heap, underruns, and power on each supported board.
-5. Separate platform settings persistence into explicit NVS/flash/SD backends.
+1. Validate the CrowPanel V2.1 demo on physical hardware and enable its DAC speaker and touch panel.
+2. Validate and stabilize the ESP32-S3 build on physical hardware.
+3. Finish RP2040 MicroSD/FatFs integration and add a reproducible SDK build.
+4. Add real MP3 and FLAC fixtures to automated decoder tests.
+5. Measure stack, heap, underruns, and power on each supported board.
+6. Separate platform settings persistence into explicit NVS/flash/SD backends.

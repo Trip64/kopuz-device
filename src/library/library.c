@@ -7,6 +7,19 @@
 
 #define LIBRARY_MAX_SCAN_DEPTH 16
 
+static void copy_truncated(char *destination, size_t destination_size, const char *source) {
+    if (!destination || destination_size == 0) return;
+    if (!source) {
+        destination[0] = '\0';
+        return;
+    }
+
+    size_t length = 0;
+    while (length + 1 < destination_size && source[length] != '\0') length++;
+    memcpy(destination, source, length);
+    destination[length] = '\0';
+}
+
 static bool is_audio_file(const char *name) {
     const char *dot = strrchr(name, '.');
     if (!dot) return false;
@@ -27,14 +40,13 @@ static void extract_tags_from_path(const char *full_path, char *title, char *art
     strcpy(album, "Unknown Album");
 
     char path_copy[MAX_PATH_LEN];
-    strncpy(path_copy, full_path, sizeof(path_copy) - 1);
-    path_copy[sizeof(path_copy) - 1] = '\0';
+    copy_truncated(path_copy, sizeof(path_copy), full_path);
 
     char *last_slash = strrchr(path_copy, '/');
     char *fname = last_slash ? (last_slash + 1) : path_copy;
     char *dot = strrchr(fname, '.');
     if (dot) *dot = '\0';
-    snprintf(title, MAX_TITLE_LEN, "%s", fname);
+    copy_truncated(title, MAX_TITLE_LEN, fname);
 
     if (!last_slash) return;
 
@@ -42,7 +54,7 @@ static void extract_tags_from_path(const char *full_path, char *title, char *art
     char *parent_slash = strrchr(path_copy, '/');
     char *parent_name = parent_slash ? (parent_slash + 1) : path_copy;
     if (parent_name[0] != '\0' && strcmp(parent_name, "sdcard") != 0 && strcmp(parent_name, ".") != 0) {
-        snprintf(album, MAX_NAME_LEN, "%s", parent_name);
+        copy_truncated(album, MAX_NAME_LEN, parent_name);
     }
 
     if (!parent_slash) return;
@@ -51,7 +63,7 @@ static void extract_tags_from_path(const char *full_path, char *title, char *art
     char *grand_slash = strrchr(path_copy, '/');
     char *grand_name = grand_slash ? (grand_slash + 1) : path_copy;
     if (grand_name[0] != '\0' && strcmp(grand_name, "sdcard") != 0 && strcmp(grand_name, ".") != 0) {
-        snprintf(artist, MAX_NAME_LEN, "%s", grand_name);
+        copy_truncated(artist, MAX_NAME_LEN, grand_name);
     }
 }
 
@@ -75,8 +87,7 @@ static void scan_dir_recursive(const char *dir_path, app_state_t *app, uint8_t d
             scan_dir_recursive(full_path, app, (uint8_t)(depth + 1));
         } else if (is_audio_file(entry.name)) {
             track_t *t = &app->queue[app->queue_len];
-            strncpy(t->path, full_path, sizeof(t->path) - 1);
-            t->path[sizeof(t->path) - 1] = '\0';
+            copy_truncated(t->path, sizeof(t->path), full_path);
             extract_tags_from_path(full_path, t->title, t->artist, t->album);
             t->duration_secs = 0;
             app->queue_len++;
@@ -156,8 +167,7 @@ static bool build_groups(const track_t *tracks, uint16_t track_count, bool is_al
             grp->track_indices[grp->count++] = i;
         } else if (group_count < max_groups) {
             track_group_t *grp = &groups[group_count++];
-            strncpy(grp->name, name, sizeof(grp->name) - 1);
-            grp->name[sizeof(grp->name) - 1] = '\0';
+            copy_truncated(grp->name, sizeof(grp->name), name);
             grp->capacity = 8;
             grp->count = 1;
             grp->track_indices = (uint16_t*)malloc((size_t)grp->capacity * sizeof(*grp->track_indices));

@@ -44,7 +44,7 @@ typedef enum {
     #define LCD_HEIGHT      272
     #define COLOR_DISPLAY   1
     #define ART_BOX_PX      80
-#elif defined(PICO_BOARD) || defined(RASPBERRYPI_PICO) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(TARGET_QVGA)
+#elif defined(PICO_BOARD) || defined(RASPBERRYPI_PICO) || defined(PICO_RP2040) || defined(PICO_RP2350) || defined(TARGET_QVGA) || defined(TARGET_CROWPANEL_DIS03024H)
     #define LCD_WIDTH       320
     #define LCD_HEIGHT      240
     #define COLOR_DISPLAY   1
@@ -79,7 +79,9 @@ typedef enum {
     #define MAX_GROUPS                64
 #endif
 
-#if defined(TARGET_NRF52) || defined(TARGET_NRF54) || defined(TARGET_ESP32) || defined(ESP_PLATFORM) || defined(TARGET_ESP32S3) || defined(TARGET_SIMULATOR)
+#if defined(KOPUZ_DISABLE_BLE_AUDIO)
+    #define HAS_BLE_AUDIO             0
+#elif defined(TARGET_NRF52) || defined(TARGET_NRF54) || defined(TARGET_ESP32) || defined(ESP_PLATFORM) || defined(TARGET_ESP32S3) || defined(TARGET_SIMULATOR)
     #define HAS_BLE_AUDIO             1
 #else
     #define HAS_BLE_AUDIO             0
