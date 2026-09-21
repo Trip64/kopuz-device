@@ -6,6 +6,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if !defined(_WIN32)
+#include <strings.h>
+#else
+#define strcasecmp _stricmp
+#endif
 #include <ctype.h>
 
 #define SETTINGS_SD_CONFIG_FILE  STORAGE_MOUNT_POINT "/kopuz.cfg"
@@ -52,6 +57,7 @@ static bool eeprom_read_block(kopuz_eeprom_data_t *d) {
     fclose(f);
     if (rd != sizeof(*d)) return false;
     if (d->magic != EEPROM_MAGIC) return false;
+    if (d->version != 1) return false;
     if (d->checksum != calc_checksum(d)) return false;
     return true;
 }
@@ -94,11 +100,13 @@ static bool save_to_sd(const app_state_t *app) {
         (unsigned)app->output_mode
     );
 
-    if (len > 0) {
-        hal_fwrite(buf, 1, (size_t)len, f);
+    bool ok = len > 0 && (size_t)len < sizeof(buf) &&
+              hal_fwrite(buf, 1, (size_t)len, f) == (size_t)len;
+    if (hal_fclose(f) != 0) ok = false;
+    if (!ok) {
+        printf("[SETTINGS] Failed writing configuration to %s\n", SETTINGS_SD_CONFIG_FILE);
+        return false;
     }
-
-    hal_fclose(f);
     printf("[SETTINGS] Saved configuration to SD card (%s)\n", SETTINGS_SD_CONFIG_FILE);
     return true;
 }
@@ -191,11 +199,12 @@ bool settings_save(const app_state_t *app) {
     }
 
     // 2. If user selected SD Card storage, also save / update /sdcard/kopuz.cfg
+    bool sd_ok = true;
     if (app->config_store == CONFIG_STORE_SD) {
-        save_to_sd(app);
+        sd_ok = save_to_sd(app);
     }
 
-    return true;
+    return ep_ok && sd_ok;
 }
 
 bool settings_load(app_state_t *app) {
@@ -228,15 +237,16 @@ bool settings_load(app_state_t *app) {
     }
 
     // 3. If no config existed in either place, save current defaults to EEPROM
+    bool initialized = true;
     if (!loaded) {
         app->config_store = CONFIG_STORE_EEPROM;
         printf("[SETTINGS] No saved configuration found, initializing defaults in EEPROM...\n");
-        settings_save(app);
+        initialized = settings_save(app);
     }
 
     // Apply loaded parameters to hardware
     hal_audio_set_volume(app->volume);
     hal_display_set_brightness(app->brightness);
     hal_display_set_theme(THEMES[app->theme_index].fg, THEMES[app->theme_index].bg);
-    return true;
+    return loaded || initialized;
 }

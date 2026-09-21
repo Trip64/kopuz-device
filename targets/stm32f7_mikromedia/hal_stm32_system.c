@@ -8,7 +8,36 @@
 #define DFU_MAGIC_VAL         0xDEADBEEF
 #define DFU_FLAG_PTR          ((volatile uint32_t *)0x2000FFF0)
 
+static uint8_t s_mutex_token;
+
 void hal_system_init(void) {
+}
+
+uint32_t hal_get_time_ms(void) {
+    return HAL_GetTick();
+}
+
+uint64_t hal_get_time_us(void) {
+    return (uint64_t)HAL_GetTick() * 1000u;
+}
+
+void hal_delay_ms(uint32_t ms) {
+    HAL_Delay(ms);
+}
+
+hal_mutex_t hal_mutex_create(void) { return &s_mutex_token; }
+void hal_mutex_lock(hal_mutex_t mutex) { (void)mutex; }
+void hal_mutex_unlock(hal_mutex_t mutex) { (void)mutex; }
+void hal_mutex_destroy(hal_mutex_t mutex) { (void)mutex; }
+
+bool hal_thread_create(const char *name, hal_thread_fn_t fn, void *arg,
+                       uint32_t stack_size, int priority) {
+    (void)name;
+    (void)fn;
+    (void)arg;
+    (void)stack_size;
+    (void)priority;
+    return false;
 }
 
 uint32_t hal_system_get_tick(void) {

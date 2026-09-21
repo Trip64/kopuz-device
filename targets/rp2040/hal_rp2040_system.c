@@ -10,6 +10,10 @@ uint32_t hal_get_time_ms(void) {
     return to_ms_since_boot(get_absolute_time());
 }
 
+uint64_t hal_get_time_us(void) {
+    return time_us_64();
+}
+
 void hal_delay_ms(uint32_t ms) {
     sleep_ms(ms);
 }
@@ -62,6 +66,16 @@ uint32_t hal_system_get_ram_used_bytes(void) {
 
 void hal_system_reboot(void) {
     watchdog_reboot(0, 0, 0);
+}
+
+bool hal_thread_create(const char *name, hal_thread_fn_t fn, void *arg,
+                       uint32_t stack_size, int priority) {
+    (void)name;
+    (void)fn;
+    (void)arg;
+    (void)stack_size;
+    (void)priority;
+    return false;
 }
 
 #endif

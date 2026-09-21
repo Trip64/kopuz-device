@@ -36,6 +36,7 @@ add_executable(kopuz_rp2040
     ../../src/codecs/mp3_decoder.c
     ../../src/codecs/flac_decoder.c
     ../../src/codecs/art_decoder.c
+    ../../src/settings.c
 )
 
 target_include_directories(kopuz_rp2040 PRIVATE

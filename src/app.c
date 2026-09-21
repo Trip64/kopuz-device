@@ -40,16 +40,33 @@ static void shuffle_keep_first(uint16_t *order, uint16_t n, uint16_t chosen_pos)
     }
 }
 
-static track_t s_fallback_queue[MAX_TRACKS];
-static uint8_t s_fallback_art[ART_BOX_PX * ART_BOX_PX * 2];
+#define FALLBACK_TRACK_COUNT 8
+#define FALLBACK_ART_BYTES ((ART_BOX_PX > 0) ? (ART_BOX_PX * ART_BOX_PX * 2) : 1)
+
+static track_t s_fallback_queue[FALLBACK_TRACK_COUNT];
+static uint8_t s_fallback_art[FALLBACK_ART_BYTES];
+
+static void free_track_groups(track_group_t **groups, uint16_t *count) {
+    if (!groups || !count) return;
+    if (*groups) {
+        for (uint16_t i = 0; i < *count; i++) {
+            free((*groups)[i].track_indices);
+        }
+        free(*groups);
+    }
+    *groups = NULL;
+    *count = 0;
+}
 
 void app_init(app_state_t *app) {
+    if (!app) return;
     memset(app, 0, sizeof(app_state_t));
 
     app->queue_cap = MAX_TRACKS;
     app->queue = (track_t*)calloc(app->queue_cap, sizeof(track_t));
     if (!app->queue) {
         app->queue = s_fallback_queue;
+        app->queue_cap = FALLBACK_TRACK_COUNT;
         memset(s_fallback_queue, 0, sizeof(s_fallback_queue));
     }
 
@@ -74,6 +91,59 @@ void app_init(app_state_t *app) {
     app->art_valid = false;
 }
 
+void app_deinit(app_state_t *app) {
+    if (!app) return;
+
+    free_track_groups(&app->albums, &app->albums_len);
+    free_track_groups(&app->artists, &app->artists_len);
+    free(app->play_order);
+    if (app->queue && app->queue != s_fallback_queue) {
+        free(app->queue);
+    }
+    if (app->art_rgb565 && app->art_rgb565 != s_fallback_art) {
+        free(app->art_rgb565);
+    }
+    memset(app, 0, sizeof(*app));
+}
+
+void app_set_queue(app_state_t *app, track_t *tracks, uint16_t count) {
+    if (!app || !app->queue || (!tracks && count > 0)) return;
+
+    if (count > app->queue_cap) count = app->queue_cap;
+    if (count > 0) {
+        memmove(app->queue, tracks, (size_t)count * sizeof(*tracks));
+    }
+    if (count < app->queue_len) {
+        memset(&app->queue[count], 0, (size_t)(app->queue_len - count) * sizeof(*app->queue));
+    }
+    app->queue_len = count;
+    free_track_groups(&app->albums, &app->albums_len);
+    free_track_groups(&app->artists, &app->artists_len);
+    app->current_index = 0;
+    app->position_ms = 0;
+    app->state = PLAYBACK_STOPPED;
+
+    uint16_t *new_order = NULL;
+    if (count > 0) {
+        new_order = (uint16_t*)malloc((size_t)count * sizeof(*new_order));
+        if (!new_order) {
+            free(app->play_order);
+            app->play_order = NULL;
+            app->play_order_len = 0;
+            app->play_pos = 0;
+            app_trigger_bsod(app, "ERR_OUT_OF_MEMORY", "Play order alloc failed");
+            return;
+        }
+        for (uint16_t i = 0; i < count; i++) new_order[i] = i;
+    }
+
+    free(app->play_order);
+    app->play_order = new_order;
+    app->play_order_len = count;
+    app->play_pos = 0;
+    app->dirty = true;
+}
+
 const track_t* app_get_current_track(const app_state_t *app) {
     if (!app || app->queue_len == 0 || app->current_index >= app->queue_len) {
         return NULL;
@@ -92,6 +162,7 @@ int8_t app_get_battery_pct(const app_state_t *app) {
 }
 
 uint16_t app_get_list_len(const app_state_t *app) {
+    if (!app) return 0;
     switch (app->screen) {
         case SCREEN_MENU:
 #if HAS_BLE_AUDIO
@@ -116,6 +187,7 @@ uint16_t app_get_list_len(const app_state_t *app) {
 }
 
 uint16_t app_get_current_selection(const app_state_t *app) {
+    if (!app) return 0;
     switch (app->screen) {
         case SCREEN_MENU:         return app->menu_sel;
         case SCREEN_NOW_PLAYING:  return 0;
@@ -184,11 +256,16 @@ static bool ensure_play_order(app_state_t *app) {
     if (app->play_order_len > 0) return true;
     if (app->queue_len == 0) return false;
 
-    if (app->play_order) free(app->play_order);
-    app->play_order = (uint16_t*)malloc(app->queue_len * sizeof(uint16_t));
-    for (uint16_t i = 0; i < app->queue_len; i++) {
-        app->play_order[i] = i;
+    uint16_t *new_order = (uint16_t*)malloc((size_t)app->queue_len * sizeof(*new_order));
+    if (!new_order) {
+        app_trigger_bsod(app, "ERR_OUT_OF_MEMORY", "Play order alloc failed");
+        return false;
     }
+    for (uint16_t i = 0; i < app->queue_len; i++) {
+        new_order[i] = i;
+    }
+    free(app->play_order);
+    app->play_order = new_order;
     app->play_order_len = app->queue_len;
     app->play_pos = (app->current_index < app->queue_len) ? app->current_index : 0;
     return true;
@@ -235,6 +312,7 @@ static app_command_t start_playlist(app_state_t *app, const uint16_t *tracks, ui
     if (chosen_pos >= count) chosen_pos = 0;
 
     uint16_t master = tracks[chosen_pos];
+    if (master >= app->queue_len) return CMD_NONE;
     if (master == app->current_index && app->play_order_len > 0) {
         if (app->state == PLAYBACK_PLAYING) {
             app->state = PLAYBACK_PAUSED;
@@ -245,9 +323,20 @@ static app_command_t start_playlist(app_state_t *app, const uint16_t *tracks, ui
         }
     }
 
-    if (app->play_order) free(app->play_order);
-    app->play_order = (uint16_t*)malloc(count * sizeof(uint16_t));
-    memcpy(app->play_order, tracks, count * sizeof(uint16_t));
+    uint16_t *new_order = (uint16_t*)malloc((size_t)count * sizeof(*new_order));
+    if (!new_order) {
+        app_trigger_bsod(app, "ERR_OUT_OF_MEMORY", "Playlist allocation failed");
+        return CMD_NONE;
+    }
+    for (uint16_t i = 0; i < count; i++) {
+        if (tracks[i] >= app->queue_len) {
+            free(new_order);
+            return CMD_NONE;
+        }
+        new_order[i] = tracks[i];
+    }
+    free(app->play_order);
+    app->play_order = new_order;
     app->play_order_len = count;
 
     if (app->shuffle) {
@@ -578,7 +667,8 @@ app_command_t app_on_track_end(app_state_t *app) {
 }
 
 size_t app_get_upcoming(const app_state_t *app, uint16_t *out_indices, size_t max_count) {
-    if (!app || !out_indices || app->play_order_len == 0 || max_count == 0) {
+    if (!app || !out_indices || app->play_order_len == 0 ||
+        app->play_pos >= app->play_order_len || max_count == 0) {
         return 0;
     }
 
@@ -618,4 +708,3 @@ void app_check_memory_safety(app_state_t *app) {
     }
 #endif
 }
-

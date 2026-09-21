@@ -32,7 +32,7 @@ static hal_mutex_t s_audio_mutex = NULL;
 static uint32_t s_current_sr = 0;
 static uint8_t s_current_ch = 0;
 
-static void load_current_track(void) {
+static bool load_current_track(void) {
     if (s_raw_stream_file) {
         hal_fclose(s_raw_stream_file);
         s_raw_stream_file = NULL;
@@ -44,7 +44,7 @@ static void load_current_track(void) {
     s_is_hw_stream = false;
 
     const track_t *track = app_get_current_track(s_app);
-    if (!track) return;
+    if (!track) return false;
 
     if (hal_audio_has_hardware_codec() && (strstr(track->path, ".mp3") || strstr(track->path, ".MP3") || strstr(track->path, ".wav") || strstr(track->path, ".WAV"))) {
         s_raw_stream_file = hal_fopen(track->path, "rb");
@@ -54,7 +54,12 @@ static void load_current_track(void) {
             s_hw_buf_pos = 0;
             s_current_sr = 44100;
             s_current_ch = 2;
-            hal_audio_init(44100, 2);
+            if (hal_audio_init(44100, 2) != 0) {
+                hal_fclose(s_raw_stream_file);
+                s_raw_stream_file = NULL;
+                s_is_hw_stream = false;
+                return false;
+            }
             hal_audio_set_volume(s_app->volume);
 
             const char *fmt_str = (strstr(track->path, ".wav") || strstr(track->path, ".WAV")) ? "WAV" : "MP3";
@@ -62,7 +67,7 @@ static void load_current_track(void) {
             s_app->position_ms = 0;
             s_app->dirty = true;
             printf("Hardware streaming %s [%s]\n", track->path, s_app->format_badge);
-            return;
+            return true;
         }
     }
 
@@ -71,7 +76,7 @@ static void load_current_track(void) {
         printf("Warning: Failed to open audio track: %s\n", track->path);
         snprintf(s_app->format_badge, sizeof(s_app->format_badge), "UNSUPPORTED");
         s_app->dirty = true;
-        return;
+        return false;
     }
 
     uint32_t sr = s_decoder->info.sample_rate;
@@ -86,7 +91,13 @@ static void load_current_track(void) {
 
     s_current_sr = sr;
     s_current_ch = ch;
-    hal_audio_init(sr, ch);
+    if (hal_audio_init(sr, ch) != 0) {
+        s_decoder->close(s_decoder);
+        s_decoder = NULL;
+        snprintf(s_app->format_badge, sizeof(s_app->format_badge), "AUDIO ERROR");
+        s_app->dirty = true;
+        return false;
+    }
     hal_audio_set_volume(s_app->volume);
 
     s_app->art_valid = false;
@@ -115,16 +126,35 @@ static void load_current_track(void) {
            track->path, (unsigned)s_decoder->info.sample_rate,
            (unsigned)s_decoder->info.channels, (unsigned)s_decoder->info.duration_secs,
            (unsigned)bps, s_app->format_badge);
+    return true;
+}
+
+static void load_current_or_stop(void) {
+    if (!load_current_track()) {
+        if (s_app) {
+            s_app->state = PLAYBACK_STOPPED;
+            s_app->dirty = true;
+        }
+        hal_audio_stop();
+    }
 }
 
 int audio_player_init(app_state_t *app) {
+    if (!app) return -1;
     s_app = app;
     if (!s_audio_mutex) {
         s_audio_mutex = hal_mutex_create();
     }
     s_current_sr = AUDIO_DEFAULT_SAMPLE_RATE;
     s_current_ch = AUDIO_CHANNELS;
-    hal_audio_init(AUDIO_DEFAULT_SAMPLE_RATE, AUDIO_CHANNELS);
+    if (hal_audio_init(AUDIO_DEFAULT_SAMPLE_RATE, AUDIO_CHANNELS) != 0) {
+        if (s_audio_mutex) {
+            hal_mutex_destroy(s_audio_mutex);
+            s_audio_mutex = NULL;
+        }
+        s_app = NULL;
+        return -1;
+    }
     hal_audio_set_volume(app->volume);
     return 0;
 }
@@ -136,7 +166,7 @@ void audio_player_send_command(app_command_t cmd) {
 
     switch (cmd) {
         case CMD_LOAD_CURRENT:
-            load_current_track();
+            load_current_or_stop();
             break;
         case CMD_PLAY:
             hal_audio_resume();
@@ -200,7 +230,7 @@ void audio_player_process(void) {
                 if (s_hw_buf_len == 0) {
                     app_command_t cmd = app_on_track_end(s_app);
                     if (cmd == CMD_LOAD_CURRENT) {
-                        load_current_track();
+                        load_current_or_stop();
                     } else {
                         hal_audio_stop();
                         if (s_raw_stream_file) {
@@ -316,7 +346,7 @@ void audio_player_process(void) {
     } else if (n == 0) {
         app_command_t cmd = app_on_track_end(s_app);
         if (cmd == CMD_LOAD_CURRENT || cmd == CMD_PLAY) {
-            load_current_track();
+            load_current_or_stop();
         } else {
             hal_audio_stop();
             if (s_decoder) {
@@ -329,7 +359,7 @@ void audio_player_process(void) {
         printf("Warning: Stream decode error, advancing to next track\n");
         app_command_t cmd = app_on_track_end(s_app);
         if (cmd == CMD_LOAD_CURRENT || cmd == CMD_PLAY) {
-            load_current_track();
+            load_current_or_stop();
         } else {
             hal_audio_stop();
             if (s_decoder) {

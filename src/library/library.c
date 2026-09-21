@@ -5,6 +5,8 @@
 #include <string.h>
 #include <ctype.h>
 
+#define LIBRARY_MAX_SCAN_DEPTH 16
+
 static bool is_audio_file(const char *name) {
     const char *dot = strrchr(name, '.');
     if (!dot) return false;
@@ -53,8 +55,9 @@ static void extract_tags_from_path(const char *full_path, char *title, char *art
     }
 }
 
-static void scan_dir_recursive(const char *dir_path, app_state_t *app) {
+static void scan_dir_recursive(const char *dir_path, app_state_t *app, uint8_t depth) {
     if (app->queue_len >= app->queue_cap) return;
+    if (depth > LIBRARY_MAX_SCAN_DEPTH) return;
 
     hal_dir_t *d = hal_opendir(dir_path);
     if (!d) return;
@@ -64,11 +67,12 @@ static void scan_dir_recursive(const char *dir_path, app_state_t *app) {
         if (app->queue_len >= app->queue_cap) break;
         if (entry.name[0] == '.') continue;
 
-        char full_path[MAX_PATH_LEN + 64];
-        snprintf(full_path, sizeof(full_path), "%s/%s", dir_path, entry.name);
+        char full_path[MAX_PATH_LEN];
+        int path_len = snprintf(full_path, sizeof(full_path), "%s/%s", dir_path, entry.name);
+        if (path_len < 0 || (size_t)path_len >= sizeof(full_path)) continue;
 
         if (entry.is_dir) {
-            scan_dir_recursive(full_path, app);
+            scan_dir_recursive(full_path, app, (uint8_t)(depth + 1));
         } else if (is_audio_file(entry.name)) {
             track_t *t = &app->queue[app->queue_len];
             strncpy(t->path, full_path, sizeof(t->path) - 1);
@@ -82,19 +86,45 @@ static void scan_dir_recursive(const char *dir_path, app_state_t *app) {
     hal_closedir(d);
 }
 
+static int compare_ascii_case_insensitive(const char *a, const char *b) {
+    while (*a && *b) {
+        int ca = tolower((unsigned char)*a++);
+        int cb = tolower((unsigned char)*b++);
+        if (ca != cb) return ca - cb;
+    }
+    return (unsigned char)*a - (unsigned char)*b;
+}
+
 static int compare_groups(const void *a, const void *b) {
     const track_group_t *ga = (const track_group_t*)a;
     const track_group_t *gb = (const track_group_t*)b;
-    return strcasecmp(ga->name, gb->name);
+    return compare_ascii_case_insensitive(ga->name, gb->name);
 }
 
-static void build_groups(const track_t *tracks, uint16_t track_count, bool is_album, track_group_t **out_groups, uint16_t *out_count) {
-    uint16_t max_groups = 256;
-    track_group_t *groups = (track_group_t*)calloc(max_groups, sizeof(track_group_t));
+static int compare_tracks(const void *a, const void *b) {
+    const track_t *ta = (const track_t*)a;
+    const track_t *tb = (const track_t*)b;
+    return compare_ascii_case_insensitive(ta->path, tb->path);
+}
+
+static void free_groups(track_group_t *groups, uint16_t count) {
+    if (!groups) return;
+    for (uint16_t i = 0; i < count; i++) {
+        free(groups[i].track_indices);
+    }
+    free(groups);
+}
+
+static bool build_groups(const track_t *tracks, uint16_t track_count, bool is_album,
+                         track_group_t **out_groups, uint16_t *out_count) {
+    *out_groups = NULL;
+    *out_count = 0;
+    if (track_count == 0) return true;
+
+    const uint16_t max_groups = MAX_GROUPS;
+    track_group_t *groups = (track_group_t*)calloc(max_groups, sizeof(*groups));
     if (!groups) {
-        *out_groups = NULL;
-        *out_count = 0;
-        return;
+        return false;
     }
 
     uint16_t group_count = 0;
@@ -113,16 +143,28 @@ static void build_groups(const track_t *tracks, uint16_t track_count, bool is_al
         if (found_idx >= 0) {
             track_group_t *grp = &groups[found_idx];
             if (grp->count >= grp->capacity) {
-                grp->capacity = grp->capacity ? (grp->capacity * 2) : 8;
-                grp->track_indices = (uint16_t*)realloc(grp->track_indices, grp->capacity * sizeof(uint16_t));
+                uint16_t new_capacity = (uint16_t)(grp->capacity ? (grp->capacity * 2) : 8);
+                uint16_t *new_indices = (uint16_t*)realloc(
+                    grp->track_indices, (size_t)new_capacity * sizeof(*new_indices));
+                if (!new_indices) {
+                    free_groups(groups, group_count);
+                    return false;
+                }
+                grp->track_indices = new_indices;
+                grp->capacity = new_capacity;
             }
             grp->track_indices[grp->count++] = i;
         } else if (group_count < max_groups) {
             track_group_t *grp = &groups[group_count++];
             strncpy(grp->name, name, sizeof(grp->name) - 1);
+            grp->name[sizeof(grp->name) - 1] = '\0';
             grp->capacity = 8;
             grp->count = 1;
-            grp->track_indices = (uint16_t*)malloc(grp->capacity * sizeof(uint16_t));
+            grp->track_indices = (uint16_t*)malloc((size_t)grp->capacity * sizeof(*grp->track_indices));
+            if (!grp->track_indices) {
+                free_groups(groups, group_count);
+                return false;
+            }
             grp->track_indices[0] = i;
         }
     }
@@ -131,37 +173,39 @@ static void build_groups(const track_t *tracks, uint16_t track_count, bool is_al
 
     *out_groups = groups;
     *out_count = group_count;
+    return true;
 }
 
 uint16_t library_scan(const char *root_path, app_state_t *app) {
-    if (!root_path || !app) return 0;
+    if (!root_path || !app || !app->queue || app->queue_cap == 0) return 0;
 
     app->queue_len = 0;
-    scan_dir_recursive(root_path, app);
+    scan_dir_recursive(root_path, app, 0);
+    qsort(app->queue, app->queue_len, sizeof(*app->queue), compare_tracks);
 
-    if (app->albums) {
-        for (uint16_t i = 0; i < app->albums_len; i++) {
-            free(app->albums[i].track_indices);
-        }
-        free(app->albums);
+    free_groups(app->albums, app->albums_len);
+    app->albums = NULL;
+    app->albums_len = 0;
+    free_groups(app->artists, app->artists_len);
+    app->artists = NULL;
+    app->artists_len = 0;
+
+    if (!build_groups(app->queue, app->queue_len, true, &app->albums, &app->albums_len) ||
+        !build_groups(app->queue, app->queue_len, false, &app->artists, &app->artists_len)) {
+        free_groups(app->albums, app->albums_len);
         app->albums = NULL;
         app->albums_len = 0;
-    }
-    if (app->artists) {
-        for (uint16_t i = 0; i < app->artists_len; i++) {
-            free(app->artists[i].track_indices);
-        }
-        free(app->artists);
+        free_groups(app->artists, app->artists_len);
         app->artists = NULL;
         app->artists_len = 0;
+        app_trigger_bsod(app, "ERR_OUT_OF_MEMORY", "Library grouping failed");
     }
 
-    build_groups(app->queue, app->queue_len, true, &app->albums, &app->albums_len);
-    build_groups(app->queue, app->queue_len, false, &app->artists, &app->artists_len);
-
-    if (app->play_order) free(app->play_order);
+    free(app->play_order);
+    app->play_order = NULL;
+    app->play_order_len = 0;
     if (app->queue_len > 0) {
-        app->play_order = (uint16_t*)malloc(app->queue_len * sizeof(uint16_t));
+        app->play_order = (uint16_t*)malloc((size_t)app->queue_len * sizeof(*app->play_order));
         if (!app->play_order) {
             app_trigger_bsod(app, "ERR_OUT_OF_MEMORY", "Play order alloc failed");
             return 0;
@@ -174,6 +218,9 @@ uint16_t library_scan(const char *root_path, app_state_t *app) {
     }
     app->play_order_len = app->queue_len;
     app->play_pos = 0;
+    app->current_index = 0;
+    app->position_ms = 0;
+    app->state = PLAYBACK_STOPPED;
 
     app->dirty = true;
     return app->queue_len;

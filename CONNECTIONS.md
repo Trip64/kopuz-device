@@ -1,4 +1,6 @@
-# Hardware Connections and Pinout Guide
+# Hardware Connections and Pinout Draft
+
+> **Hardware validation required:** these connections describe the intended design, not a completed certification. Verify the exact board revision, voltage levels, peripheral datasheets, and driver constants before wiring or applying power.
 
 This document specifies the wiring and pin connections for the Kopuz Device C/C++ firmware across supported hardware targets:
 
@@ -294,5 +296,4 @@ The mikromedia Plus for STM32F7 is an integrated ARM Cortex-M7 board with onboar
 | Audio Hardware | SDL2 Audio Queue | PIO I2S + DMA | Hardware I2S + DMA | NRF_I2S + EasyDMA | SAI / I2S + EasyDMA | VS1053B SPI2 + STM32 DAC |
 | Wireless Audio | N/A | N/A | BLE Audio (LC3) | [EXP] 2.4G Custom BLE | [EXP] BT 5.4 Auracast | N/A |
 | Flash Binary | build/kopuz_sim | build_rp2040/*.uf2 | ESP-IDF .bin | nRF52 .hex / .elf | nRF54 .hex / .elf | STM32F7 .bin / .hex / ST-Link |
-
 

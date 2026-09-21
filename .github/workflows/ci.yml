@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  simulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install --yes cmake libsdl2-dev
+
+      - name: Configure with runtime safety checks
+        run: >-
+          cmake -S . -B build
+          -DKOPUZ_TARGET=SIMULATOR
+          -DKOPUZ_ENABLE_SANITIZERS=ON
+          -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build
+        run: cmake --build build --parallel 2
+
+      - name: Run unit tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Run simulator smoke test
+        env:
+          SDL_AUDIODRIVER: dummy
+          SDL_VIDEODRIVER: dummy
+        run: |
+          python3 tools/create_test_audio.py
+          ./build/kopuz_sim --test

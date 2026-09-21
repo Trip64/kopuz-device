@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -42,11 +43,17 @@ static void extract_id3_cover(hal_file_t *f, mp3_state_t *st) {
                         ((uint32_t)(header[8] & 0x7F) << 7)  |
                         ((uint32_t)(header[9] & 0x7F));
 
-    long audio_start = 10 + tag_size + ((header[5] & 0x10) ? 10 : 0);
+    uint64_t audio_start_u64 = 10u + (uint64_t)tag_size + ((header[5] & 0x10) ? 10u : 0u);
+    size_t file_size = hal_fsize(f);
+    if (audio_start_u64 > LONG_MAX || (file_size > 0 && audio_start_u64 > file_size)) {
+        hal_fseek(f, 0, SEEK_SET);
+        return;
+    }
+    long audio_start = (long)audio_start_u64;
 
     // Stream-parse frames up to tag boundary
     uint32_t cur_pos = 10;
-    while (cur_pos + 10 < audio_start) {
+    while ((uint64_t)cur_pos + 10u <= audio_start_u64) {
         uint8_t fhdr[10];
         if (hal_fseek(f, (long)cur_pos, SEEK_SET) != 0) break;
         if (hal_fread(fhdr, 1, 10, f) != 10) break;
@@ -65,7 +72,7 @@ static void extract_id3_cover(hal_file_t *f, mp3_state_t *st) {
                     ((uint32_t)fhdr[7]);
         }
 
-        if (fsize == 0 || cur_pos + 10 + fsize > (uint32_t)audio_start) break;
+        if (fsize == 0 || (uint64_t)cur_pos + 10u + fsize > audio_start_u64) break;
 
         if (memcmp(fhdr, "APIC", 4) == 0 && fsize > 12 && fsize <= 512 * 1024) {
             uint8_t *apic_data = (uint8_t*)malloc(fsize);
@@ -121,7 +128,7 @@ static int mp3_decode(decoder_t *dec, int32_t *out, size_t max_samples) {
             }
             for (size_t i = 0; i < n; i++) {
                 int16_t s16 = st->pcm_frame[st->pcm_pos + i];
-                out[samples_written + i] = ((int32_t)s16) << 16;
+                out[samples_written + i] = (int32_t)s16 * 65536;
             }
             st->pcm_pos += n;
             samples_written += n;
@@ -188,7 +195,7 @@ static int mp3_decode(decoder_t *dec, int32_t *out, size_t max_samples) {
 
 static bool mp3_get_cover(decoder_t *dec, uint8_t **out_data, size_t *out_size) {
     mp3_state_t *st = (mp3_state_t*)dec->user_data;
-    if (!st || !st->cover_data || st->cover_size == 0) return false;
+    if (!st || !out_data || !out_size || !st->cover_data || st->cover_size == 0) return false;
     *out_data = st->cover_data;
     *out_size = st->cover_size;
     st->cover_data = NULL;
@@ -205,7 +212,9 @@ static bool mp3_seek(decoder_t *dec, uint32_t target_sec) {
     uint64_t target_offset = ((uint64_t)target_sec * total_sz) / dec->info.duration_secs;
     if (target_offset >= total_sz) target_offset = total_sz > 1024 ? (total_sz - 1024) : 0;
 
-    hal_fseek(st->file, (long)target_offset, SEEK_SET);
+    if (target_offset > LONG_MAX || hal_fseek(st->file, (long)target_offset, SEEK_SET) != 0) {
+        return false;
+    }
     st->stream_buf_len = 0;
     st->stream_buf_pos = 0;
     st->pcm_pos = 0;

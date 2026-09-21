@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
@@ -11,7 +12,7 @@
 #include "decoder.h"
 
 bool decode_art_rgb565(const uint8_t *jpeg_bytes, size_t jpeg_len, uint16_t target_px, uint8_t *out_rgb565) {
-    if (!jpeg_bytes || jpeg_len == 0 || target_px == 0 || !out_rgb565) {
+    if (!jpeg_bytes || jpeg_len == 0 || jpeg_len > INT_MAX || target_px == 0 || !out_rgb565) {
         return false;
     }
 

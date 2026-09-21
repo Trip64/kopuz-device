@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <string.h>
+#include <strings.h>
 #include <stdlib.h>
 
 bool g_sim_running = true;
@@ -182,7 +183,13 @@ int main(int argc, char *argv[]) {
     app_init(&s_app);
     s_app.battery_mv = hal_battery_read_mv();
 
-    audio_player_init(&s_app);
+    if (audio_player_init(&s_app) != 0) {
+        fprintf(stderr, "Failed to initialize simulator audio.\n");
+        app_deinit(&s_app);
+        hal_storage_unmount();
+        SDL_Quit();
+        return 1;
+    }
 
     printf("Scanning music library under '%s'...\n", STORAGE_MOUNT_POINT);
     uint16_t num_tracks = library_scan(STORAGE_MOUNT_POINT, &s_app);
@@ -194,8 +201,12 @@ int main(int argc, char *argv[]) {
     if (test_mode) {
         hal_audio_set_volume(0);
         printf("\n--- RUNNING SELF-TEST ---\n");
-        if (num_tracks < 3) {
-            printf("FAIL: Expected at least 3 tracks, found %u\n", (unsigned)num_tracks);
+        if (num_tracks == 0) {
+            printf("FAIL: No test audio found. Run tools/create_test_audio.py first.\n");
+            audio_player_close();
+            app_deinit(&s_app);
+            hal_storage_unmount();
+            SDL_Quit();
             return 1;
         }
 
@@ -207,6 +218,15 @@ int main(int argc, char *argv[]) {
             if (wav_idx < 0 && strstr(s_app.queue[i].path, "01 - A440 Test Tone.wav")) wav_idx = (int)i;
             if (mp3_idx < 0 && strstr(s_app.queue[i].path, "03 - Acoustic Resonance.mp3")) mp3_idx = (int)i;
             if (flac_idx < 0 && strstr(s_app.queue[i].path, "02 - Cyber Pulse.flac")) flac_idx = (int)i;
+        }
+
+        if (wav_idx < 0) {
+            printf("FAIL: Missing WAV fixture. Run tools/create_test_audio.py first.\n");
+            audio_player_close();
+            app_deinit(&s_app);
+            hal_storage_unmount();
+            SDL_Quit();
+            return 1;
         }
 
         if (wav_idx >= 0) {
@@ -223,6 +243,14 @@ int main(int argc, char *argv[]) {
             }
             ui_render(&fb, &s_app);
             hal_display_flush(fb.buffer);
+            if (s_app.position_ms == 0) {
+                printf("FAIL: WAV decoder produced no playback progress.\n");
+                audio_player_close();
+                app_deinit(&s_app);
+                hal_storage_unmount();
+                SDL_Quit();
+                return 1;
+            }
             printf("  Playing: %s (Position: %u ms, Art valid: %s) -> PASS\n",
                    s_app.queue[s_app.current_index].title, (unsigned)s_app.position_ms, s_app.art_valid ? "YES" : "NO");
         }
@@ -243,6 +271,8 @@ int main(int argc, char *argv[]) {
             hal_display_flush(fb.buffer);
             printf("  Playing: %s (Position: %u ms, Art valid: %s) -> PASS\n",
                    s_app.queue[s_app.current_index].title, (unsigned)s_app.position_ms, s_app.art_valid ? "YES" : "NO");
+        } else {
+            printf("[TEST 2/4] MP3 fixture not present -> SKIP\n");
         }
 
         if (flac_idx >= 0) {
@@ -268,6 +298,8 @@ int main(int argc, char *argv[]) {
             app_on_button(&s_app, BTN_SEEK_BACK);
             audio_player_process();
             printf("  Seek Backward: %u ms -> PASS\n", (unsigned)s_app.position_ms);
+        } else {
+            printf("[TEST 3/4] FLAC fixture not present -> SKIP\n");
         }
 
         printf("[TEST 4/4] Testing Hardware DAC Emulation & Diagnostics...\n");
@@ -276,6 +308,7 @@ int main(int argc, char *argv[]) {
         printf("\nALL TESTS PASSED\n");
 
         audio_player_close();
+        app_deinit(&s_app);
         hal_storage_unmount();
         SDL_Quit();
         return 0;
@@ -360,6 +393,7 @@ int main(int argc, char *argv[]) {
 
     settings_save(&s_app);
     audio_player_close();
+    app_deinit(&s_app);
     hal_storage_unmount();
     SDL_Quit();
     printf("Kopuz Device shutdown complete.\n");

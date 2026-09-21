@@ -147,6 +147,7 @@ extern const char *MENU_ITEMS[];
 extern const char *SETTINGS_ITEMS[];
 
 void app_init(app_state_t *app);
+void app_deinit(app_state_t *app);
 void app_set_queue(app_state_t *app, track_t *tracks, uint16_t count);
 app_command_t app_on_button(app_state_t *app, btn_event_t btn);
 app_command_t app_on_track_end(app_state_t *app);

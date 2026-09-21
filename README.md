@@ -1,56 +1,43 @@
-# Kopuz Device: C/C++ Embedded Music Player
+# Kopuz Device
 
-Standalone embedded music-player firmware written in high-performance, deterministic C99 and C++17. Companion hardware player to the Kopuz music player, running on ultra-low-power microcontrollers with no external PSRAM requirements.
+Kopuz Device is a portable C99 firmware core for a small standalone music player. The repository includes an SDL2 desktop simulator, streaming WAV/MP3/FLAC decoders, a compact framebuffer UI, and hardware-abstraction layers for several microcontroller families.
 
----
+The simulator is the reference implementation today. Hardware targets are under active development and still need validation on their named boards.
 
-## 1. Overview and Key Features
+## Project status
 
-- **Low Memory Footprint**: Complete firmware runs within <= 48 KB RAM (runs in internal SRAM on RP2040, ESP32-S3, and Nordic nRF52840 without external PSRAM).
-- **Multi-Target Architecture**:
-  - **Desktop Simulator**: Full interactive graphical simulator running natively on macOS, Linux, and Windows with SDL2 audio/video.
-  - **Raspberry Pi Pico (RP2040) & Pico 2 (RP2350)**: ILI9341 320x240 SPI display, PIO-driven I2S DAC, and dual-core processing.
-  - **LilyGO T-Display S3 (ESP32-S3)**: 1.9-inch 170x320 ST7789 8-bit parallel display, hardware I2S DAC, and BLE audio broadcast.
-  - **Nordic Semiconductor (nRF52840 & nRF54L15)**: Hardware `NRF_I2S` audio engine, 32 MHz EasyDMA MicroSD storage, and ultra-low-power standby (< 1.5 uA).
-  - **mikromedia Plus for STM32F7 (STM32F746ZG)**: High-performance 216 MHz ARM Cortex-M7 with 4.3" 480×272 16-bit parallel TFT (SSD1963), VS1053B audio codec, and native 4-bit SDMMC.
-- **Multi-Display Profile Support**:
-  - `COLOR_LCD` (480x272 / 320x240 / 320x170): 16-bit RGB565 backlit color display with full album art decoding (SSD1963, ST7789, ILI9341).
-  - `OLED_I2C` (128x64): Pure monochrome 1bpp layout for low-cost 0.96" / 1.3" I2C OLEDs (SSD1306, SH1106).
-  - `EINK_EPD` (250x122 / 296x128): Ultra-low-power sunlight-readable electronic paper display (SSD1680, UC8151).
-  - `SHARP_MIP` (400x240): Reflective Memory-in-Pixel display.
-- **Audio Codec Pipeline**:
-  - **FLAC**: dr_flac streaming integer decoder with native FLAC PICTURE metadata extraction.
-  - **MP3**: minimp3 fixed-point streaming decoder with ID3v2 APIC cover art extraction.
-  - **WAV**: Zero-overhead streaming RIFF/WAVE PCM reader.
-  - **Album Art**: stb_image JPEG decompressor with box-sampling downscaling to RGB565.
-- **User Interface**:
-  - 1bpp monochrome layout engine with 24 Rusic color themes.
-  - **2-Column Hi-Fi Layout**: Cover art box, 8-band segmented audio equalizer with floating peak-hold physics, format quality badge (`[FLAC 16b/44k]`), and Up Next track queue.
-  - **Expandable Settings**: Toggleable visualizer, audio output mode (`I2S DAC` vs `BLE AUDIO`), shuffle, repeat, volume slider, brightness, and themes.
-- **System Safety**:
-  - Blue Screen of Death (BSOD) crash recovery system with dynamic QR code generation.
-  - Memory ceiling monitoring and RAM leak traps.
+| Target | Status | Notes |
+| --- | --- | --- |
+| Desktop simulator | Tested | Built and exercised in CI with SDL2, sanitizers, unit tests, and a playback smoke test. |
+| LilyGO T-Display S3 | Experimental | ESP-IDF project and drivers are present; requires on-device build and electrical validation. |
+| RP2040 / RP2350 | Experimental | Display/audio foundations are present; MicroSD directory support is not complete. |
+| STM32F746 mikromedia | Integration scaffold | Board-specific drivers are present, but the repository does not yet provide a complete vendor SDK/toolchain package. |
+| nRF52840 | Integration scaffold | Several HAL implementations are placeholders and require a Nordic SDK integration. |
+| nRF54L15 | Planned | Architecture notes only. |
 
----
+Do not treat an untested hardware target as production-ready. Contributions with board logs, measurements, and reproducible toolchain versions are especially valuable.
 
-## 2. Supported Targets and Wiring
+## Highlights
 
-See [CONNECTIONS.md](CONNECTIONS.md) for complete pinouts, wiring diagrams, and schematics for:
-- Raspberry Pi Pico (RP2040) / Pico 2 (RP2350)
-- LilyGO T-Display S3 (ESP32-S3)
-- Nordic Semiconductor nRF52840 & nRF54L15
-- mikromedia Plus for STM32F7 (STM32F746ZG)
-- I2C OLED (SSD1306), SPI Color LCD (ST7789/ILI9341), and E-Ink (SSD1680)
+- Portable application state machine and hardware abstraction layer.
+- SDL2 simulator with seven display profiles and multiple DAC models.
+- Streaming PCM WAV, MP3 (`minimp3`), and FLAC (`dr_flac`) decoding.
+- JPEG album-art decoding and RGB565 downscaling.
+- Songs, albums, artists, settings, Bluetooth, now-playing, and crash screens.
+- Deterministic library ordering, bounded recursive scanning, and allocation-failure handling.
+- CTest coverage for playback state, settings persistence, library scanning, and non-canonical WAV files.
+- AddressSanitizer and UndefinedBehaviorSanitizer support.
 
-See [DESIGN.md](DESIGN.md) for deep technical architecture, memory budgets, and design specifications.
+## Build the simulator
 
----
+Requirements:
 
-## 3. Building and Running
+- CMake 3.15 or newer
+- A C99 compiler
+- SDL2 development files
+- Python 3 for generating local smoke-test audio
 
-### 3.1 Native Desktop Simulator
-
-Requires CMake and SDL2:
+Install SDL2:
 
 ```sh
 # macOS
@@ -60,125 +47,123 @@ brew install cmake sdl2
 sudo apt-get install cmake libsdl2-dev
 ```
 
-Build and run:
+Configure and build:
 
 ```sh
-mkdir build && cd build
-cmake .. -DKOPUZ_TARGET=SIMULATOR
-cmake --build .
-
-# Run simulator
-./kopuz_sim
-
-# Run automated self-test suite
-./kopuz_sim --test
+cmake -S . -B build -DKOPUZ_TARGET=SIMULATOR -DCMAKE_BUILD_TYPE=Debug
+cmake --build build --parallel
 ```
 
-Controls in Simulator:
-- `Enter` / `Space`: Select / Play-Pause
-- `Enter` (Hold >= 500ms): Back
-- `Down` / `J`: Next track / Scroll down
-- `Up` / `K`: Prev track / Scroll up
-- `Right` / `L`: Seek forward 5s
-- `Left` / `H`: Seek backward 5s
-- `+` / `=` / `U`: Volume up
-- `-` / `D`: Volume down
-- `Esc` / `Backspace`: Back
-- `C`: Trigger BSOD crash test
-
-### 3.2 Raspberry Pi Pico / Pico 2 (RP2040 / RP2350)
-
-Requires the Raspberry Pi Pico SDK:
+Run the automated tests:
 
 ```sh
-export PICO_SDK_PATH=/path/to/pico-sdk
-
-# Build for RP2040
-mkdir build_rp2040 && cd build_rp2040
-cmake .. -DKOPUZ_TARGET=RP2040 -DPICO_PLATFORM=rp2040
-cmake --build . -j4
-
-# Build for RP2350 (Pico 2)
-mkdir build_rp2350 && cd build_rp2350
-cmake .. -DKOPUZ_TARGET=RP2040 -DPICO_PLATFORM=rp2350
-cmake --build . -j4
+ctest --test-dir build --output-on-failure
 ```
 
-Flash the generated `kopuz_rp2040.uf2` by holding the BOOTSEL button while plugging in the board.
+Run the simulator:
 
-### 3.3 LilyGO T-Display S3 (ESP32-S3)
+```sh
+./build/kopuz_sim
+```
 
-Requires ESP-IDF v5.x:
+Generate local audio fixtures and run the playback smoke test:
+
+```sh
+python3 tools/create_test_audio.py
+SDL_AUDIODRIVER=dummy SDL_VIDEODRIVER=dummy ./build/kopuz_sim --test
+```
+
+The generated `sdcard/` library and `eeprom.bin` settings file are local runtime data and are ignored by Git.
+
+### Runtime safety checks
+
+For development, enable AddressSanitizer and UndefinedBehaviorSanitizer:
+
+```sh
+cmake -S . -B build-sanitize \
+  -DKOPUZ_TARGET=SIMULATOR \
+  -DKOPUZ_ENABLE_SANITIZERS=ON \
+  -DCMAKE_BUILD_TYPE=Debug
+cmake --build build-sanitize --parallel
+ctest --test-dir build-sanitize --output-on-failure
+```
+
+## Simulator controls
+
+| Input | Action |
+| --- | --- |
+| Enter / Space | Select or play/pause |
+| Enter, held for 500 ms | Back |
+| Up / K | Previous track or move up |
+| Down / J | Next track or move down |
+| Left / H | Seek backward five seconds |
+| Right / L | Seek forward five seconds |
+| `+` / `=` / U | Volume up |
+| `-` / D | Volume down |
+| Escape / Backspace | Back |
+| F1–F7 / Tab | Select or cycle display profiles |
+| F8 | Print DAC and buffer diagnostics |
+| F9 | Cycle DAC models |
+| C | Open the crash-screen demo |
+
+Use `./build/kopuz_sim --help` to list command-line options.
+
+## ESP32-S3 build
+
+The T-Display S3 target is a complete ESP-IDF project rooted at `targets/esp32s3_tdisplay`. With ESP-IDF v5 installed and exported:
 
 ```sh
 cd targets/esp32s3_tdisplay
 idf.py set-target esp32s3
 idf.py build
+```
+
+Flashing is intentionally left as a separate step so the serial port is explicit:
+
+```sh
 idf.py -p /dev/ttyACM0 flash monitor
 ```
 
-### 3.4 Nordic Semiconductor (nRF52840)
+This target still requires physical validation before release use.
 
-Requires `arm-none-eabi-gcc`:
+## Other hardware targets
 
-```sh
-cd targets/nrf52840
-cmake -B build -DKOPUZ_TARGET=NRF52840
-cmake --build build
-```
+The RP2040/RP2350, nRF52840, and STM32F7 directories contain useful board code, but they are not yet covered by CI or hardware-in-the-loop tests. See [CONNECTIONS.md](CONNECTIONS.md) for the intended wiring and [DESIGN.md](DESIGN.md) for the architecture and current constraints.
 
-### 3.5 mikromedia Plus for STM32F7 (STM32F746ZG)
+## Memory model
 
-Requires `arm-none-eabi-gcc`:
+RAM use depends on the selected display, track limit, decoder, and hardware SDK. The firmware does not currently guarantee a 48 KB total ceiling.
 
-```sh
-cd targets/stm32f7_mikromedia
-cmake -B build -DKOPUZ_TARGET=STM32F7
-cmake --build build
-```
+Important contributors include:
 
-Flash via ST-Link:
-```sh
-openocd -f interface/stlink.cfg -f target/stm32f7x.cfg -c "program build/kopuz_stm32f7.elf verify reset exit"
-```
+- `sizeof(track_t) * MAX_TRACKS` for the library queue;
+- the 1-bit framebuffer;
+- the RGB565 album-art buffer;
+- decoder state and PCM buffers;
+- platform driver and RTOS allocations.
 
----
+The emergency queue now holds only eight tracks instead of duplicating the full configured queue. Before claiming support for a constrained board, measure the linked image and peak heap on that exact target.
 
-## 4. Directory Structure
+## Repository layout
 
-```
+```text
 .
-├── CMakeLists.txt              # Root CMake build configuration
-├── CONNECTIONS.md              # Complete hardware pinouts and schematics
-├── DESIGN.md                   # Technical specification and architecture
-├── README.md                   # Project overview and build guide
-├── hal/                        # Hardware Abstraction Layer interfaces
-│   ├── hal_audio.h
-│   ├── hal_display.h
-│   ├── hal_input.h
-│   ├── hal_power.h
-│   ├── hal_storage.h
-│   └── hal_system.h
-├── include/                    # Core definitions, themes, and configuration
-│   ├── app.h
-│   ├── audio_player.h
-│   ├── config.h
-│   ├── font.h
-│   ├── framebuffer.h
-│   ├── themes.h
-│   └── ui.h
-├── src/                        # Core portable application code
-│   ├── app.c                   # State machine and button dispatch
-│   ├── audio_player.c          # Audio playback pipeline
-│   ├── codecs/                 # FLAC, MP3, WAV, and JPEG decoders
-│   ├── fonts/                  # 6x10 and 8x13 bold bitmap fonts
-│   ├── library/                # FATFS music directory scanner
-│   └── ui/                     # Framebuffer renderer, mini-player, BSOD, QR
-└── targets/                    # Target-specific implementations
-    ├── esp32s3_tdisplay/       # LilyGO T-Display S3 ESP-IDF target
-    ├── nrf52840/               # Nordic nRF52840 target
-    ├── nrf54l15/               # Nordic nRF54L15 target architecture
-    ├── rp2040/                 # RP2040 and RP2350 Pico SDK target
-    ├── simulator/              # Desktop SDL2 simulator target
-    └── stm32f7_mikromedia/     # mikromedia Plus for STM32F7 target
+├── .github/workflows/ci.yml       # Simulator CI and sanitizer checks
+├── CMakeLists.txt                 # Desktop build and tests
+├── CONNECTIONS.md                 # Intended hardware wiring
+├── DESIGN.md                      # Architecture and constraints
+├── hal/                           # Portable hardware interfaces
+├── include/                       # Shared application headers
+├── src/                           # Portable application, UI, and codecs
+├── targets/                       # Simulator and board integrations
+├── tests/                         # Native regression tests
+└── tools/                         # Development utilities
 ```
+
+## Near-term roadmap
+
+1. Validate and stabilize the ESP32-S3 build on physical hardware.
+2. Finish RP2040 MicroSD/FatFs integration and add a reproducible SDK build.
+3. Add real MP3 and FLAC fixtures to automated decoder tests.
+4. Measure stack, heap, underruns, and power on each supported board.
+5. Separate platform settings persistence into explicit NVS/flash/SD backends.

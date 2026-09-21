@@ -71,7 +71,7 @@ typedef enum {
 #define AUDIO_BUFFER_SAMPLES      (AUDIO_BLOCK_FRAMES * AUDIO_CHANNELS)
 
 // Application Limits
-#if defined(KOPUZ_SIMULATOR)
+#if defined(KOPUZ_SIMULATOR) || defined(TARGET_SIMULATOR)
     #define MAX_TRACKS                5000
     #define MAX_GROUPS                512
 #else

@@ -1,6 +1,6 @@
 build*/
+eeprom.bin
+sdcard/
 test_minimp3/
 kopuz-device-orig/
 pico-sdk/
-
-sdcard/NECTOInstaller.dmg

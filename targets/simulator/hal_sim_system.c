@@ -3,6 +3,11 @@
 #include <stdlib.h>
 #include <time.h>
 
+typedef struct {
+    hal_thread_fn_t fn;
+    void *arg;
+} sim_thread_context_t;
+
 void hal_delay_ms(uint32_t ms) {
     SDL_Delay(ms);
 }
@@ -36,15 +41,29 @@ void hal_mutex_destroy(hal_mutex_t m) {
 }
 
 static int thread_trampoline(void *data) {
-    hal_thread_fn_t fn = (hal_thread_fn_t)data;
-    fn(NULL);
+    sim_thread_context_t *context = (sim_thread_context_t*)data;
+    hal_thread_fn_t fn = context->fn;
+    void *arg = context->arg;
+    free(context);
+    fn(arg);
     return 0;
 }
 
 bool hal_thread_create(const char *name, hal_thread_fn_t fn, void *arg, uint32_t stack_size, int priority) {
-    (void)stack_size; (void)priority; (void)arg;
-    SDL_Thread *th = SDL_CreateThread(thread_trampoline, name, (void*)fn);
-    return (th != NULL);
+    (void)stack_size;
+    (void)priority;
+    if (!fn) return false;
+    sim_thread_context_t *context = (sim_thread_context_t*)malloc(sizeof(*context));
+    if (!context) return false;
+    context->fn = fn;
+    context->arg = arg;
+    SDL_Thread *thread = SDL_CreateThread(thread_trampoline, name ? name : "kopuz", context);
+    if (!thread) {
+        free(context);
+        return false;
+    }
+    SDL_DetachThread(thread);
+    return true;
 }
 
 uint32_t hal_system_get_ram_used_bytes(void) {

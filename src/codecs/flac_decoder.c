@@ -52,9 +52,11 @@ static void flac_on_meta(void *pUserData, drflac_metadata *pMetadata) {
         drflac_uint32 picSize = pMetadata->data.picture.pictureDataSize;
         const void *picData = pMetadata->data.picture.pPictureData;
         if (picSize > 0 && picSize <= 256 * 1024 && picData) {
-            st->cover_data = (uint8_t*)malloc(picSize);
-            if (st->cover_data) {
-                memcpy(st->cover_data, picData, picSize);
+            uint8_t *new_cover = (uint8_t*)malloc(picSize);
+            if (new_cover) {
+                memcpy(new_cover, picData, picSize);
+                free(st->cover_data);
+                st->cover_data = new_cover;
                 st->cover_size = picSize;
             }
         }
@@ -110,7 +112,7 @@ static int flac_decode(decoder_t *dec, int32_t *out, size_t max_samples) {
 
 static bool flac_get_cover(decoder_t *dec, uint8_t **out_data, size_t *out_size) {
     flac_state_t *st = (flac_state_t*)dec->user_data;
-    if (!st || !st->cover_data || st->cover_size == 0) return false;
+    if (!st || !out_data || !out_size || !st->cover_data || st->cover_size == 0) return false;
     *out_data = st->cover_data;
     *out_size = st->cover_size;
     st->cover_data = NULL; // transferred ownership
@@ -122,7 +124,8 @@ static bool flac_seek(decoder_t *dec, uint32_t target_sec) {
     flac_state_t *st = (flac_state_t*)dec->user_data;
     if (!st || !st->pFlac) return false;
     drflac_uint64 target_frame = (drflac_uint64)target_sec * st->pFlac->sampleRate;
-    if (st->pFlac->totalPCMFrameCount > 0 && target_frame >= st->pFlac->totalPCMFrameCount) {
+    if (st->pFlac->totalPCMFrameCount == 0) return false;
+    if (target_frame >= st->pFlac->totalPCMFrameCount) {
         target_frame = st->pFlac->totalPCMFrameCount - 1;
     }
     return (drflac_seek_to_pcm_frame(st->pFlac, target_frame) == DRFLAC_TRUE);
