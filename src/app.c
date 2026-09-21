@@ -654,6 +654,27 @@ app_command_t app_on_button(app_state_t *app, btn_event_t btn) {
     }
 }
 
+void app_set_current_selection(app_state_t *app, uint16_t selection) {
+    if (!app) return;
+    uint16_t length = app_get_list_len(app);
+    if (length == 0) return;
+    if (selection >= length) selection = length - 1;
+
+    switch (app->screen) {
+        case SCREEN_MENU: app->menu_sel = selection; break;
+        case SCREEN_SONGS: app->songs_sel = selection; break;
+        case SCREEN_ALBUMS: app->albums_sel = selection; break;
+        case SCREEN_ARTISTS: app->artists_sel = selection; break;
+        case SCREEN_ALBUM_TRACKS:
+        case SCREEN_ARTIST_TRACKS: app->group_sel = selection; break;
+        case SCREEN_SETTINGS: app->settings_sel = selection; break;
+        case SCREEN_BLUETOOTH: app->bt_sel = selection; break;
+        case SCREEN_CONFIRM_REBOOT: app->menu_sel = selection; break;
+        default: return;
+    }
+    app->dirty = true;
+}
+
 app_command_t app_on_track_end(app_state_t *app) {
     if (!app || app->play_order_len == 0) {
         if (app) app->state = PLAYBACK_STOPPED;

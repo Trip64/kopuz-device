@@ -32,6 +32,8 @@ the common legacy PIN `1234`.
 Bluetooth starts only when the Bluetooth screen or a Bluetooth serial command
 is used, preserving decoder memory during local playback. Input audio is
 converted to stereo 44.1 kHz for A2DP, including mono and 32/48/96 kHz tracks.
+Put headphones or speakers into pairing mode before scanning. Unnamed Classic
+Bluetooth inquiry results are retained and resolved after discovery when possible.
 
 ## Pin map
 
@@ -104,9 +106,10 @@ each change.
 | Left / GPIO25 | Next item | Previous item |
 | Right / GPIO32 | Select / play-pause | Back |
 
-Touch gestures are: tap to select/play-pause, swipe up for next, swipe down for
-previous, and swipe left to go back. Since the panel is resistive, a firm touch
-or fingernail works better than a light capacitive-style touch.
+Touch uses Elecrow's calibrated landscape coordinates. Tap a list row to open
+it, or use the on-screen Back, volume, previous, play/pause, and next buttons.
+Swipe up/down to move and swipe left to go back. Since the panel is resistive,
+a firm touch or fingernail works better than a light capacitive-style touch.
 
 At 115200 baud, send one serial command per line: `next`, `prev`, `select`,
 `back`, `vol+`, `vol-`, `brightness 10..100`, `status`, or `help`. The short

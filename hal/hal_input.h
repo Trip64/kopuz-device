@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -19,11 +20,29 @@ typedef enum {
     BTN_CRASH_TEST
 } btn_event_t;
 
+typedef enum {
+    TOUCH_NONE = 0,
+    TOUCH_TAP,
+    TOUCH_SWIPE_LEFT,
+    TOUCH_SWIPE_RIGHT,
+    TOUCH_SWIPE_UP,
+    TOUCH_SWIPE_DOWN
+} touch_gesture_t;
+
+typedef struct {
+    touch_gesture_t gesture;
+    uint16_t x;
+    uint16_t y;
+} touch_event_t;
+
 // Initialize button GPIOs and interrupts
 void hal_input_init(void);
 
 // Poll for next button event (non-blocking, returns BTN_NONE if empty)
 btn_event_t hal_input_poll(void);
+
+// Poll for a calibrated touch event. Coordinates use the display orientation.
+bool hal_input_poll_touch(touch_event_t *event);
 
 #ifdef __cplusplus
 }

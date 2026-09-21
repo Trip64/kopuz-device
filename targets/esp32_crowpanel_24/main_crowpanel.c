@@ -32,6 +32,56 @@ static app_state_t s_app;
 static char s_serial_line[64];
 static size_t s_serial_length;
 
+#define TOUCH_BAR_Y 210
+#define TOUCH_BODY_Y 16
+#define TOUCH_ROW_HEIGHT 13
+#define TOUCH_VISIBLE_ROWS 14
+
+static btn_event_t handle_touch(const touch_event_t *touch) {
+    if (!touch) return BTN_NONE;
+
+    switch (touch->gesture) {
+        case TOUCH_SWIPE_LEFT: return BTN_BACK;
+        case TOUCH_SWIPE_UP: return BTN_NEXT;
+        case TOUCH_SWIPE_DOWN: return BTN_PREV;
+        case TOUCH_SWIPE_RIGHT: return BTN_PLAY_PAUSE;
+        case TOUCH_TAP: break;
+        default: return BTN_NONE;
+    }
+
+    if (touch->y >= TOUCH_BAR_Y) {
+        unsigned zone = ((unsigned)touch->x * 6U) / LCD_WIDTH;
+        static const btn_event_t controls[6] = {
+            BTN_BACK, BTN_VOL_DOWN, BTN_PREV,
+            BTN_PLAY_PAUSE, BTN_NEXT, BTN_VOL_UP,
+        };
+        if (zone > 5) zone = 5;
+        return controls[zone];
+    }
+
+    if (touch->y < TOUCH_BODY_Y) {
+        return touch->x < LCD_WIDTH / 3 ? BTN_BACK : BTN_NONE;
+    }
+
+    if (s_app.screen == SCREEN_NOW_PLAYING) return BTN_PLAY_PAUSE;
+
+    uint16_t length = app_get_list_len(&s_app);
+    if (length == 0 || touch->y >= TOUCH_BAR_Y) return BTN_NONE;
+
+    uint16_t selected = app_get_current_selection(&s_app);
+    uint16_t max_start = length > TOUCH_VISIBLE_ROWS ? length - TOUCH_VISIBLE_ROWS : 0;
+    uint16_t start = selected > TOUCH_VISIBLE_ROWS / 2
+                         ? selected - TOUCH_VISIBLE_ROWS / 2
+                         : 0;
+    if (start > max_start) start = max_start;
+
+    uint16_t row = (uint16_t)((touch->y - TOUCH_BODY_Y) / TOUCH_ROW_HEIGHT);
+    uint16_t index = start + row;
+    if (row >= TOUCH_VISIBLE_ROWS || index >= length) return BTN_NONE;
+    app_set_current_selection(&s_app, index);
+    return BTN_PLAY_PAUSE;
+}
+
 static btn_event_t execute_serial_command(char *line) {
     while (*line && isspace((unsigned char)*line)) ++line;
     for (char *cursor = line; *cursor; ++cursor) {
@@ -99,10 +149,11 @@ static btn_event_t execute_serial_command(char *line) {
     }
 #endif
     if (!strcmp(line, "status")) {
-        ESP_LOGI(TAG, "status screen=%d selection=%u tracks=%u playback=%d volume=%u brightness=%u",
+        ESP_LOGI(TAG, "status screen=%d selection=%u tracks=%u playback=%d volume=%u brightness=%u stack_free=%u",
                  (int)s_app.screen, (unsigned)app_get_current_selection(&s_app),
                  (unsigned)s_app.queue_len, (int)s_app.state,
-                 (unsigned)s_app.volume, (unsigned)s_app.brightness);
+                 (unsigned)s_app.volume, (unsigned)s_app.brightness,
+                 (unsigned)uxTaskGetStackHighWaterMark(NULL));
         return BTN_NONE;
     }
     if (!strcmp(line, "help") || !strcmp(line, "?")) {
@@ -185,13 +236,17 @@ void app_main(void) {
         app_trigger_bsod(&s_app, "ERR_OUT_OF_MEMORY", "Could not start audio task");
     }
 
-    ESP_LOGI(TAG, "Ready. Serial: send 'help'. Touch: tap select, swipe up/down move, left back");
+    ESP_LOGI(TAG, "Ready. Touch: tap rows/buttons, swipe up/down move, left back");
     uint32_t last_progress_ms = 0;
     uint32_t last_bluetooth_refresh_ms = 0;
 
     while (true) {
         btn_event_t button = poll_serial();
         if (button == BTN_NONE) button = hal_input_poll();
+        if (button == BTN_NONE) {
+            touch_event_t touch;
+            if (hal_input_poll_touch(&touch)) button = handle_touch(&touch);
+        }
         if (button != BTN_NONE) {
             app_command_t command = app_on_button(&s_app, button);
             if (command != CMD_NONE) audio_player_send_command(command);

@@ -45,6 +45,8 @@ int main(void) {
     CHECK(app_get_list_len(NULL) == 0);
     CHECK(app_get_current_selection(NULL) == 0);
     CHECK(app_get_battery_pct(&app) == -1);
+    app_set_current_selection(&app, 3);
+    CHECK(app.menu_sel == 3);
 
     track_t tracks[] = {
         make_track("one"),
@@ -55,6 +57,13 @@ int main(void) {
     CHECK(app.queue_len == 3);
     CHECK(app.play_order_len == 3);
     CHECK(strcmp(app_get_current_track(&app)->title, "one") == 0);
+    app.screen = SCREEN_SONGS;
+    app_set_current_selection(&app, 99);
+    CHECK(app.songs_sel == 2);
+
+    app.screen = SCREEN_CONFIRM_REBOOT;
+    app_set_current_selection(&app, 1);
+    CHECK(app.menu_sel == 1);
 
     app.screen = SCREEN_NOW_PLAYING;
     CHECK(app_on_button(&app, BTN_PLAY_PAUSE) == CMD_LOAD_CURRENT);

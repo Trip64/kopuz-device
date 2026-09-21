@@ -1,6 +1,7 @@
 #if defined(ESP_PLATFORM)
 
 #include "hal/hal_input.h"
+#include "config.h"
 #include "crowpanel_pins.h"
 
 #include "driver/gpio.h"
@@ -15,7 +16,13 @@
 #define DEBOUNCE_MS 25
 #define LONG_PRESS_MS 600
 #define TOUCH_CLOCK_HZ (2 * 1000 * 1000)
-#define TOUCH_SWIPE_THRESHOLD 500
+#define TOUCH_SWIPE_THRESHOLD_PX 32
+
+/* Elecrow's calibration for DIS03024H with the display in rotation 1. */
+#define TOUCH_X_RAW_MIN 557
+#define TOUCH_X_RAW_SPAN 3263
+#define TOUCH_Y_RAW_MIN 369
+#define TOUCH_Y_RAW_SPAN 3493
 
 static const char *TAG = "crow_input";
 static spi_device_handle_t s_touch;
@@ -103,13 +110,32 @@ static void touch_position(uint16_t *x, uint16_t *y) {
     *y = (uint16_t)(y_sum / 5);
 }
 
-static btn_event_t poll_touch(void) {
-    if (!s_touch) return BTN_NONE;
+static uint16_t clamp_map(int32_t value, int32_t raw_min, int32_t raw_span,
+                          uint16_t pixel_span, bool invert) {
+    int32_t mapped = ((value - raw_min) * pixel_span) / raw_span;
+    if (mapped < 0) mapped = 0;
+    if (mapped >= pixel_span) mapped = pixel_span - 1;
+    return invert ? (uint16_t)(pixel_span - 1 - mapped) : (uint16_t)mapped;
+}
+
+static void touch_to_screen(uint16_t raw_x, uint16_t raw_y,
+                            uint16_t *screen_x, uint16_t *screen_y) {
+    /* Calibration flag 3 means swapped axes with display X inverted. */
+    *screen_x = clamp_map(raw_y, TOUCH_X_RAW_MIN, TOUCH_X_RAW_SPAN, LCD_WIDTH, true);
+    *screen_y = clamp_map(raw_x, TOUCH_Y_RAW_MIN, TOUCH_Y_RAW_SPAN, LCD_HEIGHT, false);
+}
+
+bool hal_input_poll_touch(touch_event_t *event) {
+    if (!event || !s_touch) return false;
+    event->gesture = TOUCH_NONE;
     bool pressed = gpio_get_level(CROW_TOUCH_IRQ) == 0;
     if (pressed) {
+        uint16_t raw_x;
+        uint16_t raw_y;
         uint16_t x;
         uint16_t y;
-        touch_position(&x, &y);
+        touch_position(&raw_x, &raw_y);
+        touch_to_screen(raw_x, raw_y, &x, &y);
         if (!s_touch_down) {
             s_touch_down = true;
             s_touch_start_x = x;
@@ -117,20 +143,30 @@ static btn_event_t poll_touch(void) {
         }
         s_touch_last_x = x;
         s_touch_last_y = y;
-        return BTN_NONE;
+        return false;
     }
-    if (!s_touch_down) return BTN_NONE;
+    if (!s_touch_down) return false;
 
     s_touch_down = false;
-    int x_delta = (int)s_touch_start_x - (int)s_touch_last_x;
-    int y_delta = (int)s_touch_start_y - (int)s_touch_last_y;
-    ESP_LOGI(TAG, "Touch gesture raw start=%u,%u delta=%d,%d",
-             s_touch_start_x, s_touch_start_y, x_delta, y_delta);
+    int x_delta = (int)s_touch_last_x - (int)s_touch_start_x;
+    int y_delta = (int)s_touch_last_y - (int)s_touch_start_y;
+    int abs_x = x_delta < 0 ? -x_delta : x_delta;
+    int abs_y = y_delta < 0 ? -y_delta : y_delta;
 
-    if (x_delta > TOUCH_SWIPE_THRESHOLD) return BTN_BACK;
-    if (y_delta > TOUCH_SWIPE_THRESHOLD) return BTN_NEXT;
-    if (y_delta < -TOUCH_SWIPE_THRESHOLD) return BTN_PREV;
-    return BTN_PLAY_PAUSE;
+    event->x = s_touch_last_x;
+    event->y = s_touch_last_y;
+    if (abs_x >= TOUCH_SWIPE_THRESHOLD_PX && abs_x > abs_y) {
+        event->gesture = x_delta < 0 ? TOUCH_SWIPE_LEFT : TOUCH_SWIPE_RIGHT;
+    } else if (abs_y >= TOUCH_SWIPE_THRESHOLD_PX) {
+        event->gesture = y_delta < 0 ? TOUCH_SWIPE_UP : TOUCH_SWIPE_DOWN;
+    } else {
+        event->gesture = TOUCH_TAP;
+        event->x = s_touch_start_x;
+        event->y = s_touch_start_y;
+    }
+
+    ESP_LOGI(TAG, "Touch %d at %u,%u", (int)event->gesture, event->x, event->y);
+    return true;
 }
 
 static btn_event_t poll_button(button_state_t *button, btn_event_t short_event,
@@ -163,7 +199,7 @@ btn_event_t hal_input_poll(void) {
     if (event != BTN_NONE) return event;
     event = poll_button(&s_buttons[1], BTN_PLAY_PAUSE, BTN_BACK, now);
     if (event != BTN_NONE) return event;
-    return poll_touch();
+    return BTN_NONE;
 }
 
 #endif

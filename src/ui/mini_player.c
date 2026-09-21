@@ -21,6 +21,7 @@ static void draw_progress_bar(framebuffer_t *fb, int16_t x, int16_t y, int16_t w
 static void render_list(framebuffer_t *fb, const app_state_t *app);
 static void render_now_playing(framebuffer_t *fb, const app_state_t *app);
 static void render_mini_footer(framebuffer_t *fb, const app_state_t *app);
+static void draw_touch_controls(framebuffer_t *fb, const app_state_t *app);
 static void draw_dithered_art_1bpp(framebuffer_t *fb, int16_t dst_x, int16_t dst_y, int16_t size,
                                    const uint8_t *src_rgb565, uint8_t src_size);
 
@@ -74,6 +75,9 @@ void ui_render(framebuffer_t *fb, const app_state_t *app) {
     } else {
         render_list(fb, app);
     }
+#if defined(TARGET_CROWPANEL_DIS03024H)
+    draw_touch_controls(fb, app);
+#endif
 }
 
 void ui_render_message(framebuffer_t *fb, const char *heading, const char *body) {
@@ -98,6 +102,9 @@ static inline int16_t get_ui_row_height(const framebuffer_t *fb) {
 }
 
 static inline int16_t get_ui_footer_height(const framebuffer_t *fb) {
+#if defined(TARGET_CROWPANEL_DIS03024H)
+    if (fb->width == 320 && fb->height == 240) return 30;
+#endif
     return (fb->height <= 64) ? 12 : ((fb->height <= 128) ? 16 : 24);
 }
 
@@ -759,6 +766,9 @@ static void render_now_playing(framebuffer_t *fb, const app_state_t *app) {
         fb_draw_text_trunc(fb, tx, ay + 39, tags, cap_small, &font_6x10, false);
 
         int16_t by = fb->height - 22;
+#if defined(TARGET_CROWPANEL_DIS03024H)
+        by = fb->height - 47;
+#endif
 
         // UP NEXT queue below the art and metadata block
         int16_t q_top = ay + art_size + 4;
@@ -847,5 +857,27 @@ static void render_mini_footer(framebuffer_t *fb, const app_state_t *app) {
             draw_progress_bar(fb, 2, by, pbar_w, frac);
         }
         fb_draw_text(fb, tx, by - 2, t_str, &font_6x10, false);
+    }
+}
+
+static void draw_touch_controls(framebuffer_t *fb, const app_state_t *app) {
+    if (!fb || !app || fb->width != 320 || fb->height != 240) return;
+
+    static const char *labels[6] = {"BACK", "VOL-", "PREV", "PLAY", "NEXT", "VOL+"};
+    const int16_t y = fb->height - 30;
+    const int16_t cell_w = fb->width / 6;
+
+    fb_fill_rect(fb, 0, y, fb->width, 30, false);
+    fb_draw_line(fb, 0, y, fb->width - 1, y, true);
+    for (int i = 0; i < 6; ++i) {
+        int16_t x = i * cell_w;
+        int16_t width = (i == 5) ? fb->width - x : cell_w;
+        fb_draw_rect(fb, x, y, width, 30, true);
+
+        const char *label = labels[i];
+        if (i == 3 && app->state == PLAYBACK_PLAYING) label = "PAUS";
+        int16_t text_w = (int16_t)strlen(label) * font_6x10.width;
+        fb_draw_text(fb, x + (width - text_w) / 2, y + 10,
+                     label, &font_6x10, false);
     }
 }

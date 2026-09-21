@@ -157,6 +157,7 @@ const track_t* app_get_current_track(const app_state_t *app);
 int8_t app_get_battery_pct(const app_state_t *app); // -1 for USB, 0..100 %
 uint16_t app_get_list_len(const app_state_t *app);
 uint16_t app_get_current_selection(const app_state_t *app);
+void app_set_current_selection(app_state_t *app, uint16_t selection);
 size_t app_get_upcoming(const app_state_t *app, uint16_t *out_indices, size_t max_count);
 
 #ifdef __cplusplus

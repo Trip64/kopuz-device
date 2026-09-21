@@ -44,6 +44,43 @@ static bt_device_entry_t s_discovered[8];
 static uint8_t s_discovered_count = 0;
 static bool s_is_scanning = false;
 
+static int find_discovered(const esp_bd_addr_t bda) {
+    for (uint8_t index = 0; index < s_discovered_count; ++index) {
+        if (memcmp(s_discovered[index].bda, bda, sizeof(esp_bd_addr_t)) == 0) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+static void copy_device_name(char *destination, size_t destination_size,
+                             const uint8_t *name, size_t name_length) {
+    if (!destination || destination_size == 0 || !name || name_length == 0) return;
+    if (name_length >= destination_size) name_length = destination_size - 1;
+    memcpy(destination, name, name_length);
+    destination[name_length] = '\0';
+}
+
+static void remember_discovered(const esp_bd_addr_t bda, const uint8_t *name,
+                                size_t name_length, int8_t rssi) {
+    int index = find_discovered(bda);
+    if (index < 0) {
+        if (s_discovered_count >= 8) return;
+        index = s_discovered_count++;
+        memset(&s_discovered[index], 0, sizeof(s_discovered[index]));
+        memcpy(s_discovered[index].bda, bda, sizeof(esp_bd_addr_t));
+        snprintf(s_discovered[index].name, sizeof(s_discovered[index].name),
+                 "BT device %u", (unsigned)index + 1);
+    }
+    if (name && name_length > 0) {
+        copy_device_name(s_discovered[index].name, sizeof(s_discovered[index].name),
+                         name, name_length);
+    }
+    s_discovered[index].rssi = rssi;
+    ESP_LOGI(TAG, "Discovery result [%u]: %s (%d dBm)",
+             (unsigned)index + 1, s_discovered[index].name, rssi);
+}
+
 // Pull PCM data from ringbuffer into Bluetooth A2DP stream
 static int32_t bt_app_a2d_data_cb(uint8_t *data, int32_t len) {
     if (!data || len <= 0 || !s_ble_ringbuf) {
@@ -69,8 +106,18 @@ static int32_t bt_app_a2d_data_cb(uint8_t *data, int32_t len) {
 static void bt_app_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *param) {
     switch (event) {
         case ESP_BT_GAP_DISC_RES_EVT: {
+            const uint8_t *device_name = NULL;
+            size_t device_name_length = 0;
+            int8_t rssi = -127;
             for (int i = 0; i < param->disc_res.num_prop; i++) {
-                if (param->disc_res.prop[i].type == ESP_BT_GAP_DEV_PROP_EIR) {
+                if (param->disc_res.prop[i].type == ESP_BT_GAP_DEV_PROP_BDNAME) {
+                    device_name = (const uint8_t *)param->disc_res.prop[i].val;
+                    device_name_length = (size_t)param->disc_res.prop[i].len;
+                } else if (param->disc_res.prop[i].type == ESP_BT_GAP_DEV_PROP_RSSI &&
+                           param->disc_res.prop[i].len >= (int)sizeof(int8_t)) {
+                    rssi = *(const int8_t *)param->disc_res.prop[i].val;
+                } else if (param->disc_res.prop[i].type == ESP_BT_GAP_DEV_PROP_EIR &&
+                           !device_name) {
                     uint8_t *eir = (uint8_t*)param->disc_res.prop[i].val;
                     uint8_t rlen = 0;
                     uint8_t *name = esp_bt_gap_resolve_eir_data(eir, ESP_BT_EIR_TYPE_CMPL_LOCAL_NAME, &rlen);
@@ -78,35 +125,37 @@ static void bt_app_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
                         name = esp_bt_gap_resolve_eir_data(eir, ESP_BT_EIR_TYPE_SHORT_LOCAL_NAME, &rlen);
                     }
                     if (name && rlen > 0) {
-                        char dname[32];
-                        size_t nlen = (rlen < sizeof(dname) - 1) ? rlen : sizeof(dname) - 1;
-                        memcpy(dname, name, nlen);
-                        dname[nlen] = '\0';
-
-                        // Check if already in list
-                        bool exists = false;
-                        for (uint8_t d = 0; d < s_discovered_count; d++) {
-                            if (memcmp(s_discovered[d].bda, param->disc_res.bda, 6) == 0) {
-                                exists = true;
-                                break;
-                            }
-                        }
-                        if (!exists && s_discovered_count < 8) {
-                            strncpy(s_discovered[s_discovered_count].name, dname, sizeof(s_discovered[0].name) - 1);
-                            memcpy(s_discovered[s_discovered_count].bda, param->disc_res.bda, 6);
-                            s_discovered[s_discovered_count].rssi = -55;
-                            s_discovered[s_discovered_count].connected = false;
-                            s_discovered_count++;
-                            ESP_LOGI(TAG, "Discovered device [%u]: %s", s_discovered_count, dname);
-                        }
+                        device_name = name;
+                        device_name_length = rlen;
                     }
                 }
             }
+            /* Some audio devices report BDNAME, while others omit a name entirely. */
+            remember_discovered(param->disc_res.bda, device_name,
+                                device_name_length, rssi);
             break;
         }
+        case ESP_BT_GAP_READ_REMOTE_NAME_EVT:
+            if (param->read_rmt_name.stat == ESP_BT_STATUS_SUCCESS) {
+                int index = find_discovered(param->read_rmt_name.bda);
+                if (index >= 0) {
+                    copy_device_name(s_discovered[index].name,
+                                     sizeof(s_discovered[index].name),
+                                     param->read_rmt_name.rmt_name,
+                                     strnlen((const char *)param->read_rmt_name.rmt_name,
+                                             ESP_BT_GAP_MAX_BDNAME_LEN));
+                }
+            }
+            break;
         case ESP_BT_GAP_DISC_STATE_CHANGED_EVT: {
             if (param->disc_st_chg.state == ESP_BT_GAP_DISCOVERY_STOPPED) {
                 s_is_scanning = false;
+                for (uint8_t index = 0; index < s_discovered_count; ++index) {
+                    if (!strncmp(s_discovered[index].name, "BT device ", 10)) {
+                        esp_bt_gap_read_remote_name(s_discovered[index].bda);
+                        break;
+                    }
+                }
                 if (s_connect_pending) {
                     s_connect_pending = false;
                     esp_err_t error = esp_a2d_source_connect(s_peer_bda);
