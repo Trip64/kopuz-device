@@ -12,7 +12,7 @@
 #endif
 
 #if HAS_BLE_AUDIO
-#include "targets/esp32s3_tdisplay/hal_esp32_ble.h"
+#include "hal/hal_ble_audio.h"
 #endif
 
 #include "hal/hal_storage.h"
@@ -45,6 +45,14 @@ static bool load_current_track(void) {
 
     const track_t *track = app_get_current_track(s_app);
     if (!track) return false;
+
+#if HAS_BLE_AUDIO
+    if (s_app->output_mode == OUTPUT_BLE_AUDIO &&
+        hal_ble_audio_init(AUDIO_DEFAULT_SAMPLE_RATE, AUDIO_CHANNELS) != 0) {
+        s_app->output_mode = OUTPUT_I2S_DAC;
+        printf("Warning: Bluetooth audio unavailable; using local output\n");
+    }
+#endif
 
     if (hal_audio_has_hardware_codec() && (strstr(track->path, ".mp3") || strstr(track->path, ".MP3") || strstr(track->path, ".wav") || strstr(track->path, ".WAV"))) {
         s_raw_stream_file = hal_fopen(track->path, "rb");
@@ -91,6 +99,16 @@ static bool load_current_track(void) {
 
     s_current_sr = sr;
     s_current_ch = ch;
+#if HAS_BLE_AUDIO
+    if (s_app->output_mode == OUTPUT_BLE_AUDIO) {
+        if (hal_ble_audio_init(sr, ch) != 0) {
+            s_app->output_mode = OUTPUT_I2S_DAC;
+            printf("Warning: Bluetooth audio unavailable; using local output\n");
+        } else {
+            hal_ble_audio_set_volume(s_app->volume);
+        }
+    }
+#endif
     if (hal_audio_init(sr, ch) != 0) {
         s_decoder->close(s_decoder);
         s_decoder = NULL;
@@ -272,6 +290,10 @@ void audio_player_process(void) {
     }
 
     int n = s_decoder->decode(s_decoder, s_pcm_buf, AUDIO_BUFFER_SAMPLES);
+    if (n > AUDIO_BUFFER_SAMPLES) {
+        printf("Warning: Decoder returned invalid sample count %d\n", n);
+        n = -1;
+    }
     if (n > 0) {
         uint8_t ch = s_decoder->info.channels ? s_decoder->info.channels : 2;
         if (ch > 2) ch = 2;

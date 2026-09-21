@@ -7,6 +7,7 @@ idf_component_register(
         "../hal_crowpanel_system.c"
         "../hal_crowpanel_power.c"
         "../hal_crowpanel_storage.c"
+        "../../esp32s3_tdisplay/hal_esp32_ble.c"
         "../../../src/app.c"
         "../../../src/audio_player.c"
         "../../../src/library/library.c"
@@ -35,11 +36,12 @@ idf_component_register(
         esp_timer
         freertos
         fatfs
+        bt
+        nvs_flash
 )
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
     TARGET_CROWPANEL_DIS03024H=1
-    KOPUZ_DISABLE_BLE_AUDIO=1
 )
 
 target_compile_options(${COMPONENT_LIB} PRIVATE

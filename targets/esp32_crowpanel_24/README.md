@@ -4,19 +4,34 @@ This target boots the real Kopuz interface on the Elecrow 2.4-inch CrowPanel,
 scans a FAT32 microSD card, and lets you navigate with the two on-board keys.
 It targets the classic `ESP32-WROOM-32-N4`, not an ESP32-S3.
 
-## What works in this first hardware demo
+## What works
 
 - 320x240 landscape Kopuz interface on the ILI9341V display
 - PWM backlight control
 - microSD mounting and recursive MP3, FLAC, and WAV library discovery
 - two-button navigation
+- XPT2046 resistive-touch gesture navigation
+- non-blocking 115200-baud serial remote control
+- Classic Bluetooth A2DP output to headphones and speakers
 - album-art decoding and display
+- bounded album-art memory and hardened MP3/FLAC streaming
 - conservative, reliable flashing and SD settings
 
 The on-board GPIO26 speaker is deliberately muted in this first build. Tracks
 decode and the player UI advances at real time, but proper DAC audio is the next
-hardware step. Resistive touch is also reserved for the next pass; the two keys
-provide access to every current screen.
+hardware step. Touch, serial control, and the two physical keys all feed the
+same application navigation path.
+
+## Bluetooth audio
+
+Open **Bluetooth** from the main menu to start discovery, wait for nearby audio
+devices to appear, then select a headphone or speaker. Kopuz is an A2DP source
+and advertises as `Kopuz by Trip64`. Pairing supports Secure Simple Pairing and
+the common legacy PIN `1234`.
+
+Bluetooth starts only when the Bluetooth screen or a Bluetooth serial command
+is used, preserving decoder memory during local playback. Input audio is
+converted to stereo 44.1 kHz for A2DP, including mono and 32/48/96 kHz tracks.
 
 ## Pin map
 
@@ -88,5 +103,25 @@ each change.
 |---|---|---|
 | Left / GPIO25 | Next item | Previous item |
 | Right / GPIO32 | Select / play-pause | Back |
+
+Touch gestures are: tap to select/play-pause, swipe up for next, swipe down for
+previous, and swipe left to go back. Since the panel is resistive, a firm touch
+or fingernail works better than a light capacitive-style touch.
+
+At 115200 baud, send one serial command per line: `next`, `prev`, `select`,
+`back`, `vol+`, `vol-`, `brightness 10..100`, `status`, or `help`. The short
+aliases `n`, `p`, and `b` are also accepted. Serial input is non-blocking and
+can remain connected while buttons and touch are used.
+
+Bluetooth can also be controlled over serial:
+
+```text
+bt scan
+bt list
+bt connect 1
+bt disconnect
+```
+
+Run `bt list` a few seconds after scanning; device numbers are one-based.
 
 On startup, the display first shows hardware status, then enters the Kopuz menu.

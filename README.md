@@ -9,7 +9,7 @@ The simulator is the reference implementation today. Hardware targets are under 
 | Target | Status | Notes |
 | --- | --- | --- |
 | Desktop simulator | Tested | Built and exercised in CI with SDL2, sanitizers, unit tests, and a playback smoke test. |
-| Elecrow CrowPanel 2.4 V2.1 | Build-tested demo | Dedicated DIS03024H display, SD, button, and flashing configuration; physical validation is the next step. |
+| Elecrow CrowPanel 2.4 V2.1 | Hardware-tested demo | Display, SD, buttons, touch, serial control, and conservative flashing validated; A2DP support is build-tested and awaits a connected-board pairing pass. |
 | LilyGO T-Display S3 | Experimental | ESP-IDF project and drivers are present; requires on-device build and electrical validation. |
 | RP2040 / RP2350 | Experimental | Display/audio foundations are present; MicroSD directory support is not complete. |
 | STM32F746 mikromedia | Integration scaffold | Board-specific drivers are present, but the repository does not yet provide a complete vendor SDK/toolchain package. |
@@ -26,7 +26,7 @@ Do not treat an untested hardware target as production-ready. Contributions with
 - JPEG album-art decoding and RGB565 downscaling.
 - Songs, albums, artists, settings, Bluetooth, now-playing, and crash screens.
 - Deterministic library ordering, bounded recursive scanning, and allocation-failure handling.
-- CTest coverage for playback state, settings persistence, library scanning, and non-canonical WAV files.
+- CTest coverage for playback state, settings persistence, library scanning, non-canonical WAV files, and malformed MP3/FLAC streams.
 - AddressSanitizer and UndefinedBehaviorSanitizer support.
 
 ## Build the simulator
@@ -171,9 +171,9 @@ The emergency queue now holds only eight tracks instead of duplicating the full 
 
 ## Near-term roadmap
 
-1. Validate the CrowPanel V2.1 demo on physical hardware and enable its DAC speaker and touch panel.
+1. Complete CrowPanel A2DP pairing tests and enable its onboard DAC speaker.
 2. Validate and stabilize the ESP32-S3 build on physical hardware.
 3. Finish RP2040 MicroSD/FatFs integration and add a reproducible SDK build.
-4. Add real MP3 and FLAC fixtures to automated decoder tests.
+4. Expand committed MP3 and FLAC fixture coverage across sample rates and metadata variants.
 5. Measure stack, heap, underruns, and power on each supported board.
 6. Separate platform settings persistence into explicit NVS/flash/SD backends.

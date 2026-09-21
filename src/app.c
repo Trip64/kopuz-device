@@ -8,7 +8,7 @@
 #include <string.h>
 
 #if HAS_BLE_AUDIO
-#include "targets/esp32s3_tdisplay/hal_esp32_ble.h"
+#include "hal/hal_ble_audio.h"
 const char *MENU_ITEMS[6] = {"Now Playing", "Songs", "Albums", "Artists", "Bluetooth", "Settings"};
 const char *SETTINGS_ITEMS[8] = {"Shuffle", "Repeat", "Volume", "Brightness", "Theme", "Output", "Visualizer", "Storage"};
 #else
@@ -23,7 +23,7 @@ static void shuffle_keep_first(uint16_t *order, uint16_t n, uint16_t chosen_pos)
 
     // Fisher-Yates shuffle
     for (int i = (int)n - 1; i > 0; i--) {
-        int j = (int)(hal_random() % (uint32_t)(i + 1));
+        int j = (int)(hal_system_random() % (uint32_t)(i + 1));
         uint16_t tmp = order[i];
         order[i] = order[j];
         order[j] = tmp;
@@ -166,7 +166,7 @@ uint16_t app_get_list_len(const app_state_t *app) {
     switch (app->screen) {
         case SCREEN_MENU:
 #if HAS_BLE_AUDIO
-            return (app->output_mode == OUTPUT_BLE_AUDIO) ? 6 : 5;
+            return 6;
 #else
             return 5;
 #endif
@@ -366,6 +366,9 @@ static void toggle_setting(app_state_t *app) {
             app->volume = (app->volume >= 100) ? 0 : (app->volume + 10);
             if (app->volume > 100) app->volume = 100;
             hal_audio_set_volume(app->volume);
+#if HAS_BLE_AUDIO
+            hal_ble_audio_set_volume(app->volume);
+#endif
             break;
         case 3: // Brightness
             app->brightness = (app->brightness >= 100) ? 20 : (app->brightness + 20);
@@ -379,9 +382,14 @@ static void toggle_setting(app_state_t *app) {
 #if HAS_BLE_AUDIO
         case 5: // Output mode
             app->output_mode = (app->output_mode == OUTPUT_I2S_DAC) ? OUTPUT_BLE_AUDIO : OUTPUT_I2S_DAC;
-            settings_save(app);
-            app->screen = SCREEN_CONFIRM_REBOOT;
-            app->menu_sel = 0; // Default to Yes
+            if (app->output_mode == OUTPUT_BLE_AUDIO &&
+                hal_ble_audio_init(AUDIO_DEFAULT_SAMPLE_RATE, AUDIO_CHANNELS) == 0) {
+                hal_ble_audio_set_volume(app->volume);
+                hal_ble_audio_start_scan();
+                app->screen = SCREEN_BLUETOOTH;
+                app->bt_sel = 0;
+                app->bt_scanning = true;
+            }
             break;
         case 6: // Visualizer
             app->vu_enabled = !app->vu_enabled;
@@ -411,12 +419,15 @@ static app_command_t select_item(app_state_t *app) {
                 case 3: app->screen = SCREEN_ARTISTS; break;
                 case 4:
 #if HAS_BLE_AUDIO
-                    if (app->output_mode == OUTPUT_BLE_AUDIO) {
+                    if (hal_ble_audio_init(AUDIO_DEFAULT_SAMPLE_RATE, AUDIO_CHANNELS) == 0) {
+                        hal_ble_audio_set_volume(app->volume);
+                        hal_ble_audio_start_scan();
                         app->screen = SCREEN_BLUETOOTH;
                         app->bt_device_count = hal_ble_audio_get_discovered(app->bt_devices, 8);
                         app->bt_sel = 0;
+                        app->bt_scanning = true;
                     } else {
-                        app->screen = SCREEN_SETTINGS;
+                        app_trigger_bsod(app, "ERR_BLUETOOTH", "Could not initialize A2DP");
                     }
 #else
                     app->screen = SCREEN_SETTINGS;
@@ -424,9 +435,7 @@ static app_command_t select_item(app_state_t *app) {
                     break;
                 case 5:
 #if HAS_BLE_AUDIO
-                    if (app->output_mode == OUTPUT_BLE_AUDIO) {
-                        app->screen = SCREEN_SETTINGS;
-                    }
+                    app->screen = SCREEN_SETTINGS;
 #endif
                     break;
             }
@@ -447,9 +456,10 @@ static app_command_t select_item(app_state_t *app) {
                         hal_ble_audio_disconnect();
                         app->bt_devices[dev_idx].connected = false;
                     } else {
-                        hal_ble_audio_connect_device(dev_idx);
-                        app->output_mode = OUTPUT_BLE_AUDIO;
-                        app->bt_devices[dev_idx].connected = true;
+                        if (hal_ble_audio_connect_device(dev_idx)) {
+                            app->output_mode = OUTPUT_BLE_AUDIO;
+                            settings_save(app);
+                        }
                     }
                 }
             }
@@ -592,11 +602,17 @@ app_command_t app_on_button(app_state_t *app, btn_event_t btn) {
         case BTN_VOL_UP:
             app->volume = (app->volume + 5 <= 100) ? (app->volume + 5) : 100;
             hal_audio_set_volume(app->volume);
+#if HAS_BLE_AUDIO
+            hal_ble_audio_set_volume(app->volume);
+#endif
             return CMD_NONE;
 
         case BTN_VOL_DOWN:
             app->volume = (app->volume >= 5) ? (app->volume - 5) : 0;
             hal_audio_set_volume(app->volume);
+#if HAS_BLE_AUDIO
+            hal_ble_audio_set_volume(app->volume);
+#endif
             return CMD_NONE;
 
         case BTN_NEXT:

@@ -1,4 +1,4 @@
-#include "hal_esp32_ble.h"
+#include "hal/hal_ble_audio.h"
 #include "hal/hal_audio.h"
 #include <stdio.h>
 #include <string.h>
@@ -12,12 +12,13 @@
 #include "esp_gap_bt_api.h"
 #include "esp_a2dp_api.h"
 #include "esp_avrc_api.h"
+#include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/ringbuf.h"
 
 #define TAG "KOPUZ_BT"
-#define BT_RINGBUF_SIZE (16 * 1024)
+#define BT_RINGBUF_SIZE (12 * 1024)
 
 typedef enum {
     BT_STATE_IDLE = 0,
@@ -31,10 +32,13 @@ static RingbufHandle_t s_ble_ringbuf = NULL;
 static uint8_t s_ble_volume = 70;
 static uint32_t s_ble_sample_rate = 44100;
 static uint8_t s_ble_channels = 2;
+static uint64_t s_resample_accumulator = 0;
 static bt_audio_state_t s_bt_state = BT_STATE_IDLE;
 static char s_connected_device_name[64] = "Searching...";
 static esp_bd_addr_t s_peer_bda;
 static bool s_bt_inited = false;
+static bool s_profile_ready = false;
+static bool s_connect_pending = false;
 
 static bt_device_entry_t s_discovered[8];
 static uint8_t s_discovered_count = 0;
@@ -103,11 +107,33 @@ static void bt_app_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
         case ESP_BT_GAP_DISC_STATE_CHANGED_EVT: {
             if (param->disc_st_chg.state == ESP_BT_GAP_DISCOVERY_STOPPED) {
                 s_is_scanning = false;
+                if (s_connect_pending) {
+                    s_connect_pending = false;
+                    esp_err_t error = esp_a2d_source_connect(s_peer_bda);
+                    if (error != ESP_OK) {
+                        s_bt_state = BT_STATE_IDLE;
+                        ESP_LOGE(TAG, "A2DP connection start failed: %s",
+                                 esp_err_to_name(error));
+                    }
+                }
             } else if (param->disc_st_chg.state == ESP_BT_GAP_DISCOVERY_STARTED) {
                 s_is_scanning = true;
             }
             break;
         }
+        case ESP_BT_GAP_PIN_REQ_EVT: {
+            esp_bt_pin_code_t pin_code = {'1', '2', '3', '4'};
+            uint8_t length = 4;
+            if (param->pin_req.min_16_digit) {
+                memset(pin_code, 0, sizeof(pin_code));
+                length = 16;
+            }
+            esp_bt_gap_pin_reply(param->pin_req.bda, true, length, pin_code);
+            break;
+        }
+        case ESP_BT_GAP_CFM_REQ_EVT:
+            esp_bt_gap_ssp_confirm_reply(param->cfm_req.bda, true);
+            break;
         default:
             break;
     }
@@ -115,6 +141,11 @@ static void bt_app_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
 
 static void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
     switch (event) {
+        case ESP_A2D_PROF_STATE_EVT:
+            s_profile_ready = param->a2d_prof_stat.init_state == ESP_A2D_INIT_SUCCESS;
+            ESP_LOGI(TAG, "A2DP source profile %s",
+                     s_profile_ready ? "ready" : "stopped");
+            break;
         case ESP_A2D_CONNECTION_STATE_EVT: {
             if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_CONNECTED) {
                 ESP_LOGI(TAG, "Bluetooth A2DP Connected!");
@@ -151,8 +182,13 @@ static void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
 }
 
 int hal_ble_audio_init(uint32_t sample_rate, uint8_t channels) {
-    s_ble_sample_rate = sample_rate ? sample_rate : 44100;
-    s_ble_channels = channels ? channels : 2;
+    uint32_t new_sample_rate = sample_rate ? sample_rate : 44100;
+    uint8_t new_channels = channels == 1 ? 1 : 2;
+    if (new_sample_rate != s_ble_sample_rate || new_channels != s_ble_channels) {
+        s_resample_accumulator = 0;
+    }
+    s_ble_sample_rate = new_sample_rate;
+    s_ble_channels = new_channels;
 
     if (!s_ble_ringbuf) {
         s_ble_ringbuf = xRingbufferCreate(BT_RINGBUF_SIZE, RINGBUF_TYPE_BYTEBUF);
@@ -163,33 +199,57 @@ int hal_ble_audio_init(uint32_t sample_rate, uint8_t channels) {
     }
 
     if (!s_bt_inited) {
-        esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
-        if (esp_bt_controller_init(&bt_cfg) != ESP_OK) {
-            ESP_LOGE(TAG, "Bluetooth controller init failed");
-            return -1;
+        esp_err_t error = nvs_flash_init();
+        if (error == ESP_ERR_NVS_NO_FREE_PAGES || error == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+            error = nvs_flash_erase();
+            if (error == ESP_OK) error = nvs_flash_init();
         }
-        if (esp_bt_controller_enable(ESP_BT_MODE_BTDM) != ESP_OK) {
-            ESP_LOGE(TAG, "Bluetooth controller enable failed");
-            return -1;
-        }
-        if (esp_bluedroid_init() != ESP_OK) {
-            ESP_LOGE(TAG, "Bluedroid init failed");
-            return -1;
-        }
-        if (esp_bluedroid_enable() != ESP_OK) {
-            ESP_LOGE(TAG, "Bluedroid enable failed");
+        if (error != ESP_OK) {
+            ESP_LOGE(TAG, "Bluetooth NVS initialization failed: %s", esp_err_to_name(error));
             return -1;
         }
 
-        esp_bt_dev_set_device_name("Kopuz Player");
-        esp_bt_gap_register_callback(bt_app_gap_cb);
-        esp_a2d_register_callback(bt_app_a2d_cb);
-        esp_a2d_source_register_data_callback(bt_app_a2d_data_cb);
-        esp_a2d_source_init();
+        error = esp_bt_controller_mem_release(ESP_BT_MODE_BLE);
+        if (error != ESP_OK && error != ESP_ERR_INVALID_STATE) {
+            ESP_LOGW(TAG, "Could not release unused BLE memory: %s", esp_err_to_name(error));
+        }
+        esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
+        error = esp_bt_controller_init(&bt_cfg);
+        if (error != ESP_OK) {
+            ESP_LOGE(TAG, "Bluetooth controller init failed: %s", esp_err_to_name(error));
+            return -1;
+        }
+        error = esp_bt_controller_enable(ESP_BT_MODE_CLASSIC_BT);
+        if (error != ESP_OK) {
+            ESP_LOGE(TAG, "Bluetooth controller enable failed: %s", esp_err_to_name(error));
+            return -1;
+        }
+        error = esp_bluedroid_init();
+        if (error != ESP_OK) {
+            ESP_LOGE(TAG, "Bluedroid init failed: %s", esp_err_to_name(error));
+            return -1;
+        }
+        error = esp_bluedroid_enable();
+        if (error != ESP_OK) {
+            ESP_LOGE(TAG, "Bluedroid enable failed: %s", esp_err_to_name(error));
+            return -1;
+        }
+
+        esp_bt_sp_param_t security_type = ESP_BT_SP_IOCAP_MODE;
+        esp_bt_io_cap_t capability = ESP_BT_IO_CAP_NONE;
+        esp_bt_gap_set_security_param(security_type, &capability, sizeof(uint8_t));
+
+        if (esp_bt_gap_set_device_name("Kopuz by Trip64") != ESP_OK ||
+            esp_bt_gap_register_callback(bt_app_gap_cb) != ESP_OK ||
+            esp_a2d_register_callback(bt_app_a2d_cb) != ESP_OK ||
+            esp_a2d_source_register_data_callback(bt_app_a2d_data_cb) != ESP_OK ||
+            esp_a2d_source_init() != ESP_OK) {
+            ESP_LOGE(TAG, "A2DP source setup failed");
+            return -1;
+        }
 
         s_bt_inited = true;
         s_bt_state = BT_STATE_IDLE;
-        hal_ble_audio_start_scan();
     }
 
     return 0;
@@ -203,6 +263,7 @@ void hal_ble_audio_deinit(void) {
         esp_bt_controller_disable();
         esp_bt_controller_deinit();
         s_bt_inited = false;
+        s_profile_ready = false;
         s_bt_state = BT_STATE_IDLE;
     }
     if (s_ble_ringbuf) {
@@ -214,31 +275,43 @@ void hal_ble_audio_deinit(void) {
 
 size_t hal_ble_audio_write(const int32_t *samples, size_t sample_count) {
     if (!s_ble_ringbuf || !samples || sample_count == 0) return 0;
+    if (!hal_ble_audio_is_connected()) return sample_count;
 
     int16_t pcm16[256];
-    size_t done = 0;
+    size_t output_samples = 0;
+    size_t input_frames = sample_count / s_ble_channels;
 
-    while (done < sample_count) {
-        size_t chunk = sample_count - done;
-        if (chunk > sizeof(pcm16) / sizeof(pcm16[0])) {
-            chunk = sizeof(pcm16) / sizeof(pcm16[0]);
-        }
+    for (size_t frame = 0; frame < input_frames; ++frame) {
+        s_resample_accumulator += 44100;
+        while (s_resample_accumulator >= s_ble_sample_rate) {
+            int32_t left = samples[frame * s_ble_channels] >> 16;
+            int32_t right = s_ble_channels == 2 ?
+                            samples[frame * 2 + 1] >> 16 : left;
+            left = (int32_t)(((int64_t)left * s_ble_volume) / 100);
+            right = (int32_t)(((int64_t)right * s_ble_volume) / 100);
+            if (left > 32767) left = 32767;
+            if (left < -32768) left = -32768;
+            if (right > 32767) right = 32767;
+            if (right < -32768) right = -32768;
+            pcm16[output_samples++] = (int16_t)left;
+            pcm16[output_samples++] = (int16_t)right;
+            s_resample_accumulator -= s_ble_sample_rate;
 
-        for (size_t i = 0; i < chunk; i++) {
-            int32_t scaled = (int32_t)(((int64_t)(samples[done + i] >> 16) * s_ble_volume) / 100);
-            if (scaled > 32767) scaled = 32767;
-            if (scaled < -32768) scaled = -32768;
-            pcm16[i] = (int16_t)scaled;
+            if (output_samples == sizeof(pcm16) / sizeof(pcm16[0])) {
+                if (xRingbufferSend(s_ble_ringbuf, pcm16, sizeof(pcm16),
+                                    pdMS_TO_TICKS(20)) != pdTRUE) {
+                    return frame * s_ble_channels;
+                }
+                output_samples = 0;
+            }
         }
-
-        BaseType_t res = xRingbufferSend(s_ble_ringbuf, pcm16, chunk * sizeof(int16_t), pdMS_TO_TICKS(15));
-        if (res != pdTRUE) {
-            break;
-        }
-        done += chunk;
     }
-
-    return done;
+    if (output_samples > 0 &&
+        xRingbufferSend(s_ble_ringbuf, pcm16, output_samples * sizeof(int16_t),
+                        pdMS_TO_TICKS(20)) != pdTRUE) {
+        return 0;
+    }
+    return input_frames * s_ble_channels;
 }
 
 bool hal_ble_audio_is_connected(void) {
@@ -254,9 +327,15 @@ const char* hal_ble_audio_get_device_name(void) {
 }
 
 void hal_ble_audio_start_scan(void) {
+    if (!s_bt_inited) return;
+    if (s_is_scanning) return;
     s_discovered_count = 0;
     s_is_scanning = true;
-    esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, 10, 0);
+    esp_err_t error = esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, 10, 0);
+    if (error != ESP_OK) {
+        s_is_scanning = false;
+        ESP_LOGE(TAG, "Bluetooth discovery failed: %s", esp_err_to_name(error));
+    }
 }
 
 void hal_ble_audio_stop_scan(void) {
@@ -276,13 +355,22 @@ uint8_t hal_ble_audio_get_discovered(bt_device_entry_t *devices, uint8_t max_cou
 }
 
 bool hal_ble_audio_connect_device(uint8_t index) {
-    if (index >= s_discovered_count) return false;
-    esp_bt_gap_cancel_discovery();
-    s_is_scanning = false;
+    if (!s_profile_ready || index >= s_discovered_count) return false;
     memcpy(s_peer_bda, s_discovered[index].bda, sizeof(esp_bd_addr_t));
     s_bt_state = BT_STATE_CONNECTING;
     snprintf(s_connected_device_name, sizeof(s_connected_device_name), "%s", s_discovered[index].name);
-    return (esp_a2d_source_connect(s_peer_bda) == ESP_OK);
+    if (s_is_scanning) {
+        s_connect_pending = true;
+        if (esp_bt_gap_cancel_discovery() != ESP_OK) {
+            s_connect_pending = false;
+            s_bt_state = BT_STATE_IDLE;
+            return false;
+        }
+        return true;
+    }
+    esp_err_t error = esp_a2d_source_connect(s_peer_bda);
+    if (error != ESP_OK) s_bt_state = BT_STATE_IDLE;
+    return error == ESP_OK;
 }
 
 void hal_ble_audio_disconnect(void) {

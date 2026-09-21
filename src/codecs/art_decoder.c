@@ -11,6 +11,10 @@
 #include "stb_image.h"
 #include "decoder.h"
 
+#if defined(ESP_PLATFORM)
+#include "esp_heap_caps.h"
+#endif
+
 bool decode_art_rgb565(const uint8_t *jpeg_bytes, size_t jpeg_len, uint16_t target_px, uint8_t *out_rgb565) {
     if (!jpeg_bytes || jpeg_len == 0 || jpeg_len > INT_MAX || target_px == 0 || !out_rgb565) {
         return false;
@@ -23,6 +27,20 @@ bool decode_art_rgb565(const uint8_t *jpeg_bytes, size_t jpeg_len, uint16_t targ
     if (w > 2048 || h > 2048 || w <= 0 || h <= 0) {
         return false;
     }
+
+    size_t pixel_count = (size_t)w * (size_t)h;
+    if (pixel_count > SIZE_MAX / 3) return false;
+#if defined(ESP_PLATFORM)
+    size_t decoded_bytes = pixel_count * 3;
+    /* stb_image expands the entire JPEG. Refuse artwork that would exhaust or
+       badly fragment the non-PSRAM heap; playback is more important than art. */
+    size_t free_bytes = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+    size_t largest_block = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    if (decoded_bytes > 64U * 1024U || decoded_bytes > largest_block ||
+        decoded_bytes + 48U * 1024U > free_bytes) {
+        return false;
+    }
+#endif
 
     unsigned char *pixels = stbi_load_from_memory(jpeg_bytes, (int)jpeg_len, &w, &h, &channels, 3);
     if (!pixels) {

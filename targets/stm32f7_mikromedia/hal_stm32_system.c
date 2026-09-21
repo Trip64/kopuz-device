@@ -96,7 +96,7 @@ uint32_t hal_system_get_ram_used_bytes(void) {
     return (uint32_t)(&_end - &_sdata);
 }
 
-uint32_t hal_random(void) {
+uint32_t hal_system_random(void) {
     return HAL_GetTick() * 1103515245 + 12345;
 }
 

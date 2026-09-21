@@ -128,6 +128,24 @@ if(KOPUZ_TARGET STREQUAL "SIMULATOR")
         kopuz_enable_sanitizers(kopuz_wav_tests)
         add_test(NAME wav_decoder COMMAND kopuz_wav_tests)
 
+        add_executable(kopuz_stream_decoder_tests
+            tests/test_stream_decoders.c
+            src/codecs/decoder.c
+            src/codecs/mp3_decoder.c
+            src/codecs/flac_decoder.c
+            targets/simulator/hal_sim_storage.c
+        )
+        target_include_directories(kopuz_stream_decoder_tests PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}
+            include
+            hal
+            src
+            src/codecs
+        )
+        kopuz_enable_warnings(kopuz_stream_decoder_tests)
+        kopuz_enable_sanitizers(kopuz_stream_decoder_tests)
+        add_test(NAME malformed_stream_decoders COMMAND kopuz_stream_decoder_tests)
+
         add_executable(kopuz_library_tests
             tests/test_library.c
             src/app.c

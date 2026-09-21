@@ -56,7 +56,7 @@ void hal_mutex_destroy(hal_mutex_t mutex) {
     }
 }
 
-uint32_t hal_random(void) {
+uint32_t hal_system_random(void) {
     return esp_random();
 }
 

@@ -44,7 +44,7 @@ void hal_mutex_destroy(hal_mutex_t mutex) {
     }
 }
 
-uint32_t hal_random(void) {
+uint32_t hal_system_random(void) {
     static uint32_t s_seed = 0;
     if (s_seed == 0) s_seed = time_us_32();
     s_seed = s_seed * 1664525u + 1013904223u; // Linear congruential generator
@@ -53,7 +53,7 @@ uint32_t hal_random(void) {
 
 uint32_t hal_random_range(uint32_t min, uint32_t max) {
     if (min >= max) return min;
-    return min + (hal_random() % (max - min + 1));
+    return min + (hal_system_random() % (max - min + 1));
 }
 
 #include "hardware/watchdog.h"

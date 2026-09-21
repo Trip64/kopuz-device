@@ -10,6 +10,14 @@
 #include "decoder.h"
 #include "hal/hal_storage.h"
 
+#define FLAC_SCRATCH_FRAMES 128
+#define FLAC_MAX_CHANNELS 8
+#if defined(ESP_PLATFORM)
+#define FLAC_MAX_COVER_BYTES (64U * 1024U)
+#else
+#define FLAC_MAX_COVER_BYTES (256U * 1024U)
+#endif
+
 typedef struct {
     hal_file_t *file;
     drflac *pFlac;
@@ -18,6 +26,7 @@ typedef struct {
     uint8_t raw_channels;
     bool downmix_multichannel;
     bool decimate_2x;
+    drflac_int32 scratch[FLAC_SCRATCH_FRAMES * FLAC_MAX_CHANNELS];
 } flac_state_t;
 
 static size_t flac_on_read(void *pUserData, void *pBufferOut, size_t bytesToRead) {
@@ -51,7 +60,7 @@ static void flac_on_meta(void *pUserData, drflac_metadata *pMetadata) {
     if (pMetadata->type == DRFLAC_METADATA_BLOCK_TYPE_PICTURE) {
         drflac_uint32 picSize = pMetadata->data.picture.pictureDataSize;
         const void *picData = pMetadata->data.picture.pPictureData;
-        if (picSize > 0 && picSize <= 256 * 1024 && picData) {
+        if (picSize > 0 && picSize <= FLAC_MAX_COVER_BYTES && picData) {
             uint8_t *new_cover = (uint8_t*)malloc(picSize);
             if (new_cover) {
                 memcpy(new_cover, picData, picSize);
@@ -69,16 +78,17 @@ static int flac_decode(decoder_t *dec, int32_t *out, size_t max_samples) {
 
     if (st->downmix_multichannel) {
         // Multichannel FLAC (e.g. 5.1 / 7.1) downmixed to stereo
-        drflac_int32 scratch[128 * 8];
         uint8_t raw_ch = st->raw_channels;
-        drflac_uint64 frames_target = (max_samples / 2 < 128) ? (max_samples / 2) : 128;
+        drflac_uint64 frames_target = (max_samples / 2 < FLAC_SCRATCH_FRAMES) ?
+                                      (max_samples / 2) : FLAC_SCRATCH_FRAMES;
         if (frames_target == 0) return 0;
 
-        drflac_uint64 frames_read = drflac_read_pcm_frames_s32(st->pFlac, frames_target, scratch);
+        drflac_uint64 frames_read = drflac_read_pcm_frames_s32(st->pFlac, frames_target,
+                                                               st->scratch);
         if (frames_read == 0) return 0;
 
         for (size_t f = 0; f < (size_t)frames_read; f++) {
-            const drflac_int32 *s = &scratch[f * raw_ch];
+            const drflac_int32 *s = &st->scratch[f * raw_ch];
             // Standard 5.1 downmix: L = FL + C*0.7 + SL*0.7; R = FR + C*0.7 + SR*0.7
             int32_t fl = s[0];
             int32_t fr = (raw_ch > 1) ? s[1] : s[0];
@@ -169,6 +179,15 @@ decoder_t* flac_decoder_open(const char *path) {
         return NULL;
     }
     st->pFlac = pFlac;
+    if (pFlac->channels == 0 || pFlac->channels > FLAC_MAX_CHANNELS ||
+        pFlac->sampleRate < 8000 || pFlac->sampleRate > 192000 ||
+        pFlac->bitsPerSample == 0 || pFlac->bitsPerSample > 32) {
+        drflac_close(pFlac);
+        if (st->cover_data) free(st->cover_data);
+        free(st);
+        hal_fclose(f);
+        return NULL;
+    }
     st->raw_channels = (uint8_t)pFlac->channels;
     st->downmix_multichannel = (pFlac->channels > 2);
 

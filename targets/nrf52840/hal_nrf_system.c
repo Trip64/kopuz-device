@@ -22,7 +22,7 @@ uint32_t hal_system_get_ram_used_bytes(void) {
     return 48 * 1024;
 }
 
-uint32_t hal_random(void) {
+uint32_t hal_system_random(void) {
     static uint32_t s_lfsr = 0xACE1u;
     s_lfsr = (s_lfsr >> 1) ^ (-(s_lfsr & 1u) & 0xB400u);
     return s_lfsr;

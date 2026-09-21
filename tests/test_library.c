@@ -25,7 +25,7 @@ void hal_audio_stop(void) {}
 void hal_audio_resume(void) {}
 void hal_display_set_brightness(uint8_t pct) { (void)pct; }
 void hal_display_set_theme(uint16_t fg, uint16_t bg) { (void)fg; (void)bg; }
-uint32_t hal_random(void) { return 1; }
+uint32_t hal_system_random(void) { return 1; }
 void hal_system_reboot(void) {}
 
 static void make_dir(const char *path) {

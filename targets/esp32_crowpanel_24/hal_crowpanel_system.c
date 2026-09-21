@@ -38,7 +38,7 @@ uint64_t hal_get_time_us(void) {
     return (uint64_t)esp_timer_get_time();
 }
 
-uint32_t hal_random(void) {
+uint32_t hal_system_random(void) {
     return esp_random();
 }
 

@@ -10,7 +10,7 @@ extern "C" {
 void hal_delay_ms(uint32_t ms);
 uint32_t hal_get_time_ms(void);
 uint64_t hal_get_time_us(void);
-uint32_t hal_random(void);
+uint32_t hal_system_random(void);
 
 typedef void* hal_mutex_t;
 hal_mutex_t hal_mutex_create(void);

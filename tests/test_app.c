@@ -25,7 +25,7 @@ void hal_audio_stop(void) {}
 void hal_audio_resume(void) {}
 void hal_display_set_brightness(uint8_t pct) { s_last_brightness = pct; }
 void hal_display_set_theme(uint16_t fg, uint16_t bg) { (void)fg; (void)bg; }
-uint32_t hal_random(void) { return 4; }
+uint32_t hal_system_random(void) { return 4; }
 void hal_system_reboot(void) {}
 
 static track_t make_track(const char *title) {

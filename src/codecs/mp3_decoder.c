@@ -11,6 +11,11 @@
 #include "hal/hal_storage.h"
 
 #define MP3_STREAM_BUF_SIZE 4096
+#if defined(ESP_PLATFORM)
+#define MP3_MAX_COVER_BYTES (64U * 1024U)
+#else
+#define MP3_MAX_COVER_BYTES (512U * 1024U)
+#endif
 
 typedef struct {
     hal_file_t *file;
@@ -74,7 +79,7 @@ static void extract_id3_cover(hal_file_t *f, mp3_state_t *st) {
 
         if (fsize == 0 || (uint64_t)cur_pos + 10u + fsize > audio_start_u64) break;
 
-        if (memcmp(fhdr, "APIC", 4) == 0 && fsize > 12 && fsize <= 512 * 1024) {
+        if (memcmp(fhdr, "APIC", 4) == 0 && fsize > 12 && fsize <= MP3_MAX_COVER_BYTES) {
             uint8_t *apic_data = (uint8_t*)malloc(fsize);
             if (apic_data) {
                 if (hal_fread(apic_data, 1, fsize, f) == fsize) {
@@ -94,12 +99,11 @@ static void extract_id3_cover(hal_file_t *f, mp3_state_t *st) {
 
                     if (p < fsize) {
                         size_t img_len = fsize - p;
-                        if (img_len > 0 && img_len <= 512 * 1024) {
-                            st->cover_data = (uint8_t*)malloc(img_len);
-                            if (st->cover_data) {
-                                memcpy(st->cover_data, &apic_data[p], img_len);
-                                st->cover_size = img_len;
-                            }
+                        if (img_len > 0 && img_len <= MP3_MAX_COVER_BYTES) {
+                            memmove(apic_data, &apic_data[p], img_len);
+                            st->cover_data = apic_data;
+                            st->cover_size = img_len;
+                            apic_data = NULL;
                         }
                     }
                 }
@@ -169,13 +173,18 @@ static int mp3_decode(decoder_t *dec, int32_t *out, size_t max_samples) {
             &info
         );
 
-        if (frame_samples > 0) {
+        bool valid_frame = frame_samples > 0 && info.frame_bytes > 0 &&
+                           (size_t)info.frame_bytes <= available_bytes &&
+                           (info.channels == 1 || info.channels == 2) &&
+                           (size_t)frame_samples * (size_t)info.channels <=
+                               MINIMP3_MAX_SAMPLES_PER_FRAME;
+        if (valid_frame) {
             st->stream_buf_pos += (size_t)info.frame_bytes;
             st->pcm_avail = (size_t)frame_samples * (size_t)info.channels;
             st->pcm_pos = 0;
             if (info.hz > 0) dec->info.sample_rate = (uint32_t)info.hz;
             if (info.channels > 0) dec->info.channels = (uint8_t)info.channels;
-        } else if (info.frame_bytes > 0) {
+        } else if (info.frame_bytes > 0 && (size_t)info.frame_bytes <= available_bytes) {
             st->stream_buf_pos += (size_t)info.frame_bytes;
         } else {
             if (st->eof) {
@@ -258,7 +267,8 @@ decoder_t* mp3_decoder_open(const char *path) {
     uint32_t sample_rate = 44100;
     uint8_t channels = 2;
 
-    // Scan for first valid frame to discover exact sample rate and channels
+    bool found_frame = false;
+    // Scan for first valid frame to discover exact sample rate and channels.
     while (st->stream_buf_len > 0) {
         mp3dec_frame_info_t info;
         memset(&info, 0, sizeof(info));
@@ -269,14 +279,21 @@ decoder_t* mp3_decoder_open(const char *path) {
             st->pcm_frame,
             &info
         );
-        if (samples > 0) {
+        size_t available_bytes = st->stream_buf_len - st->stream_buf_pos;
+        bool valid_frame = samples > 0 && info.frame_bytes > 0 &&
+                           (size_t)info.frame_bytes <= available_bytes &&
+                           (info.channels == 1 || info.channels == 2) &&
+                           (size_t)samples * (size_t)info.channels <=
+                               MINIMP3_MAX_SAMPLES_PER_FRAME;
+        if (valid_frame) {
             st->stream_buf_pos += (size_t)info.frame_bytes;
             st->pcm_avail = (size_t)samples * (size_t)info.channels;
             st->pcm_pos = 0;
             if (info.hz > 0) sample_rate = (uint32_t)info.hz;
             if (info.channels > 0) channels = (uint8_t)info.channels;
+            found_frame = true;
             break;
-        } else if (info.frame_bytes > 0) {
+        } else if (info.frame_bytes > 0 && (size_t)info.frame_bytes <= available_bytes) {
             st->stream_buf_pos += (size_t)info.frame_bytes;
         } else {
             if (st->stream_buf_pos + 1 < st->stream_buf_len) {
@@ -285,6 +302,13 @@ decoder_t* mp3_decoder_open(const char *path) {
                 break;
             }
         }
+    }
+
+    if (!found_frame) {
+        if (st->cover_data) free(st->cover_data);
+        free(st);
+        hal_fclose(f);
+        return NULL;
     }
 
     size_t file_sz = hal_fsize(f);
