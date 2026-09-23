@@ -269,6 +269,14 @@ int main(int argc, char *argv[]) {
             }
             ui_render(&fb, &s_app);
             hal_display_flush(fb.buffer);
+            if (s_app.position_ms == 0 || s_app.state != PLAYBACK_PLAYING) {
+                printf("FAIL: MP3 decoder produced no sustained playback progress.\n");
+                audio_player_close();
+                app_deinit(&s_app);
+                hal_storage_unmount();
+                SDL_Quit();
+                return 1;
+            }
             printf("  Playing: %s (Position: %u ms, Art valid: %s) -> PASS\n",
                    s_app.queue[s_app.current_index].title, (unsigned)s_app.position_ms, s_app.art_valid ? "YES" : "NO");
         } else {
@@ -289,14 +297,40 @@ int main(int argc, char *argv[]) {
             }
             ui_render(&fb, &s_app);
             hal_display_flush(fb.buffer);
+            if (s_app.position_ms == 0 || s_app.state != PLAYBACK_PLAYING) {
+                printf("FAIL: FLAC decoder produced no sustained playback progress.\n");
+                audio_player_close();
+                app_deinit(&s_app);
+                hal_storage_unmount();
+                SDL_Quit();
+                return 1;
+            }
             printf("  Playing: %s (Position: %u ms, Art valid: %s) -> PASS\n",
                    s_app.queue[s_app.current_index].title, (unsigned)s_app.position_ms, s_app.art_valid ? "YES" : "NO");
 
-            app_on_button(&s_app, BTN_SEEK_FWD);
-            audio_player_process();
+            uint32_t before_seek_ms = s_app.position_ms;
+            app_command_t seek_cmd = app_on_button(&s_app, BTN_SEEK_FWD);
+            audio_player_send_command(seek_cmd);
+            if (seek_cmd != CMD_SEEK_FWD ||
+                s_app.position_ms <= before_seek_ms) {
+                printf("FAIL: FLAC forward seek did not advance.\n");
+                audio_player_close();
+                app_deinit(&s_app);
+                hal_storage_unmount();
+                SDL_Quit();
+                return 1;
+            }
             printf("  Seek Forward: %u ms -> PASS\n", (unsigned)s_app.position_ms);
-            app_on_button(&s_app, BTN_SEEK_BACK);
-            audio_player_process();
+            seek_cmd = app_on_button(&s_app, BTN_SEEK_BACK);
+            audio_player_send_command(seek_cmd);
+            if (seek_cmd != CMD_SEEK_BACK || s_app.position_ms != 0) {
+                printf("FAIL: FLAC backward seek did not rewind.\n");
+                audio_player_close();
+                app_deinit(&s_app);
+                hal_storage_unmount();
+                SDL_Quit();
+                return 1;
+            }
             printf("  Seek Backward: %u ms -> PASS\n", (unsigned)s_app.position_ms);
         } else {
             printf("[TEST 3/4] FLAC fixture not present -> SKIP\n");

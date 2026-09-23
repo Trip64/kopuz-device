@@ -2,8 +2,12 @@ import wave
 import math
 import struct
 import os
+import subprocess
 
 def create_test_wav(filepath, duration_sec=5, sample_rate=44100, freq=440.0):
+    if os.path.exists(filepath):
+        print(f"Keeping existing {filepath}")
+        return
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
     num_samples = int(duration_sec * sample_rate)
     with wave.open(filepath, 'w') as wav:
@@ -24,6 +28,25 @@ def create_test_wav(filepath, duration_sec=5, sample_rate=44100, freq=440.0):
     print(f"Created {filepath} ({duration_sec}s, {sample_rate}Hz stereo)")
 
 if __name__ == '__main__':
-    create_test_wav("sdcard/Kopuz Trio/First Encounter/01 - A440 Test Tone.wav", duration_sec=6, freq=440.0)
+    source_wav = "sdcard/Kopuz Trio/First Encounter/01 - A440 Test Tone.wav"
+    create_test_wav(source_wav, duration_sec=6, freq=440.0)
     create_test_wav("sdcard/Kopuz Trio/First Encounter/02 - E660 Fifth Harmonic.wav", duration_sec=5, freq=660.0)
     create_test_wav("sdcard/Retro Synth/Distant Stars/01 - C523 Major Tone.wav", duration_sec=7, freq=523.25)
+
+    # The simulator self-test should exercise the two compressed decoders too.
+    # Never overwrite an existing file in a developer's local sdcard directory.
+    fixtures = (
+        ("sdcard/Kopuz Automated Fixtures/03 - Acoustic Resonance.mp3", "libmp3lame"),
+        ("sdcard/Kopuz Automated Fixtures/02 - Cyber Pulse.flac", "flac"),
+    )
+    for destination, codec in fixtures:
+        if os.path.exists(destination):
+            print(f"Keeping existing {destination}")
+            continue
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
+        subprocess.run(
+            ["ffmpeg", "-nostdin", "-n", "-loglevel", "error", "-i", source_wav,
+             "-t", "3", "-codec:a", codec, destination],
+            check=True,
+        )
+        print(f"Created {destination}")

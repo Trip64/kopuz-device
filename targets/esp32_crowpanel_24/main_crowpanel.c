@@ -239,6 +239,9 @@ void app_main(void) {
     ESP_LOGI(TAG, "Ready. Touch: tap rows/buttons, swipe up/down move, left back");
     uint32_t last_progress_ms = 0;
     uint32_t last_bluetooth_refresh_ms = 0;
+#if HAS_BLE_AUDIO
+    bool last_bluetooth_connected = false;
+#endif
 
     while (true) {
         btn_event_t button = poll_serial();
@@ -261,12 +264,19 @@ void app_main(void) {
             last_bluetooth_refresh_ms = now_ms;
             uint8_t previous_count = s_app.bt_device_count;
             bool previous_scanning = s_app.bt_scanning;
+            bt_device_entry_t previous_devices[8];
+            memcpy(previous_devices, s_app.bt_devices, sizeof(previous_devices));
             s_app.bt_device_count = hal_ble_audio_get_discovered(s_app.bt_devices, 8);
             s_app.bt_scanning = hal_ble_audio_is_scanning();
+            bool connected = hal_ble_audio_is_connected();
             if (s_app.bt_device_count != previous_count ||
-                s_app.bt_scanning != previous_scanning) {
+                s_app.bt_scanning != previous_scanning ||
+                connected != last_bluetooth_connected ||
+                memcmp(previous_devices, s_app.bt_devices,
+                       s_app.bt_device_count * sizeof(bt_device_entry_t)) != 0) {
                 s_app.dirty = true;
             }
+            last_bluetooth_connected = connected;
         }
 #endif
         bool progress_due = s_app.state == PLAYBACK_PLAYING &&

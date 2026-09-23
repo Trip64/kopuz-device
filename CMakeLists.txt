@@ -108,6 +108,7 @@ if(KOPUZ_TARGET STREQUAL "SIMULATOR")
             hal
             src
         )
+        target_compile_definitions(kopuz_app_tests PRIVATE TARGET_SIMULATOR=1)
         kopuz_enable_warnings(kopuz_app_tests)
         kopuz_enable_sanitizers(kopuz_app_tests)
         add_test(NAME app_state COMMAND kopuz_app_tests)

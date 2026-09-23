@@ -309,7 +309,15 @@ void audio_player_process(void) {
 
 #if HAS_BLE_AUDIO
         if (s_app->output_mode == OUTPUT_BLE_AUDIO) {
-            hal_ble_audio_write(s_pcm_buf, (size_t)n);
+            /* The output can be switched while a track is playing, and MP3
+             * streams can change format between frames. Keep A2DP's input
+             * format in sync with the decoder rather than the scan default. */
+            if (hal_ble_audio_init(sr, ch) == 0) {
+                hal_ble_audio_write(s_pcm_buf, (size_t)n);
+            } else {
+                s_app->output_mode = OUTPUT_I2S_DAC;
+                hal_audio_write(s_pcm_buf, (size_t)n);
+            }
         } else {
             hal_audio_write(s_pcm_buf, (size_t)n);
         }

@@ -43,8 +43,11 @@ static bool s_connect_pending = false;
 static bt_device_entry_t s_discovered[8];
 static uint8_t s_discovered_count = 0;
 static bool s_is_scanning = false;
+/* GAP callbacks run on a different task from the UI and serial console. */
+static portMUX_TYPE s_discovered_lock = portMUX_INITIALIZER_UNLOCKED;
 
-static int find_discovered(const esp_bd_addr_t bda) {
+/* Caller holds s_discovered_lock. */
+static int find_discovered_locked(const esp_bd_addr_t bda) {
     for (uint8_t index = 0; index < s_discovered_count; ++index) {
         if (memcmp(s_discovered[index].bda, bda, sizeof(esp_bd_addr_t)) == 0) {
             return index;
@@ -63,9 +66,14 @@ static void copy_device_name(char *destination, size_t destination_size,
 
 static void remember_discovered(const esp_bd_addr_t bda, const uint8_t *name,
                                 size_t name_length, int8_t rssi) {
-    int index = find_discovered(bda);
+    char logged_name[sizeof(s_discovered[0].name)];
+    portENTER_CRITICAL(&s_discovered_lock);
+    int index = find_discovered_locked(bda);
     if (index < 0) {
-        if (s_discovered_count >= 8) return;
+        if (s_discovered_count >= 8) {
+            portEXIT_CRITICAL(&s_discovered_lock);
+            return;
+        }
         index = s_discovered_count++;
         memset(&s_discovered[index], 0, sizeof(s_discovered[index]));
         memcpy(s_discovered[index].bda, bda, sizeof(esp_bd_addr_t));
@@ -77,8 +85,10 @@ static void remember_discovered(const esp_bd_addr_t bda, const uint8_t *name,
                          name, name_length);
     }
     s_discovered[index].rssi = rssi;
+    snprintf(logged_name, sizeof(logged_name), "%s", s_discovered[index].name);
+    portEXIT_CRITICAL(&s_discovered_lock);
     ESP_LOGI(TAG, "Discovery result [%u]: %s (%d dBm)",
-             (unsigned)index + 1, s_discovered[index].name, rssi);
+             (unsigned)index + 1, logged_name, rssi);
 }
 
 // Pull PCM data from ringbuffer into Bluetooth A2DP stream
@@ -87,19 +97,21 @@ static int32_t bt_app_a2d_data_cb(uint8_t *data, int32_t len) {
         return 0;
     }
 
-    size_t item_size = 0;
-    uint8_t *item = (uint8_t*)xRingbufferReceiveUpTo(s_ble_ringbuf, &item_size, pdMS_TO_TICKS(10), (size_t)len);
-    if (item && item_size > 0) {
-        memcpy(data, item, item_size);
-        vRingbufferReturnItem(s_ble_ringbuf, (void*)item);
-        if ((int32_t)item_size < len) {
-            memset(data + item_size, 0, (size_t)(len - (int32_t)item_size));
-        }
-        return len;
+    size_t copied = 0;
+    while (copied < (size_t)len) {
+        size_t item_size = 0;
+        /* A byte-buffer read may stop at the ring's wrap point. Read the
+         * remaining segment too, without blocking the Bluetooth callback. */
+        uint8_t *item = (uint8_t *)xRingbufferReceiveUpTo(
+            s_ble_ringbuf, &item_size, 0, (size_t)len - copied);
+        if (!item || item_size == 0) break;
+        memcpy(data + copied, item, item_size);
+        copied += item_size;
+        vRingbufferReturnItem(s_ble_ringbuf, item);
     }
 
-    // Underrun: output silence to keep Bluetooth connection alive
-    memset(data, 0, (size_t)len);
+    /* Underrun: fill only the missing tail with silence. */
+    if (copied < (size_t)len) memset(data + copied, 0, (size_t)len - copied);
     return len;
 }
 
@@ -137,7 +149,8 @@ static void bt_app_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
         }
         case ESP_BT_GAP_READ_REMOTE_NAME_EVT:
             if (param->read_rmt_name.stat == ESP_BT_STATUS_SUCCESS) {
-                int index = find_discovered(param->read_rmt_name.bda);
+                portENTER_CRITICAL(&s_discovered_lock);
+                int index = find_discovered_locked(param->read_rmt_name.bda);
                 if (index >= 0) {
                     copy_device_name(s_discovered[index].name,
                                      sizeof(s_discovered[index].name),
@@ -145,17 +158,24 @@ static void bt_app_gap_cb(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_param_t *pa
                                      strnlen((const char *)param->read_rmt_name.rmt_name,
                                              ESP_BT_GAP_MAX_BDNAME_LEN));
                 }
+                portEXIT_CRITICAL(&s_discovered_lock);
             }
             break;
         case ESP_BT_GAP_DISC_STATE_CHANGED_EVT: {
             if (param->disc_st_chg.state == ESP_BT_GAP_DISCOVERY_STOPPED) {
                 s_is_scanning = false;
+                esp_bd_addr_t unnamed_bda;
+                bool has_unnamed = false;
+                portENTER_CRITICAL(&s_discovered_lock);
                 for (uint8_t index = 0; index < s_discovered_count; ++index) {
                     if (!strncmp(s_discovered[index].name, "BT device ", 10)) {
-                        esp_bt_gap_read_remote_name(s_discovered[index].bda);
+                        memcpy(unnamed_bda, s_discovered[index].bda, sizeof(unnamed_bda));
+                        has_unnamed = true;
                         break;
                     }
                 }
+                portEXIT_CRITICAL(&s_discovered_lock);
+                if (has_unnamed) esp_bt_gap_read_remote_name(unnamed_bda);
                 if (s_connect_pending) {
                     s_connect_pending = false;
                     esp_err_t error = esp_a2d_source_connect(s_peer_bda);
@@ -200,6 +220,7 @@ static void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
                 ESP_LOGI(TAG, "Bluetooth A2DP Connected!");
                 s_bt_state = BT_STATE_CONNECTED;
                 esp_a2d_media_ctrl(ESP_A2D_MEDIA_CTRL_START);
+                portENTER_CRITICAL(&s_discovered_lock);
                 for (uint8_t d = 0; d < s_discovered_count; d++) {
                     if (memcmp(s_discovered[d].bda, param->conn_stat.remote_bda, 6) == 0) {
                         s_discovered[d].connected = true;
@@ -208,13 +229,16 @@ static void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param) {
                         s_discovered[d].connected = false;
                     }
                 }
+                portEXIT_CRITICAL(&s_discovered_lock);
             } else if (param->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED) {
                 ESP_LOGI(TAG, "Bluetooth A2DP Disconnected");
                 s_bt_state = BT_STATE_IDLE;
                 snprintf(s_connected_device_name, sizeof(s_connected_device_name), "Disconnected");
+                portENTER_CRITICAL(&s_discovered_lock);
                 for (uint8_t d = 0; d < s_discovered_count; d++) {
                     s_discovered[d].connected = false;
                 }
+                portEXIT_CRITICAL(&s_discovered_lock);
             }
             break;
         }
@@ -378,7 +402,9 @@ const char* hal_ble_audio_get_device_name(void) {
 void hal_ble_audio_start_scan(void) {
     if (!s_bt_inited) return;
     if (s_is_scanning) return;
+    portENTER_CRITICAL(&s_discovered_lock);
     s_discovered_count = 0;
+    portEXIT_CRITICAL(&s_discovered_lock);
     s_is_scanning = true;
     esp_err_t error = esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, 10, 0);
     if (error != ESP_OK) {
@@ -398,16 +424,25 @@ bool hal_ble_audio_is_scanning(void) {
 
 uint8_t hal_ble_audio_get_discovered(bt_device_entry_t *devices, uint8_t max_count) {
     if (!devices || max_count == 0) return 0;
+    portENTER_CRITICAL(&s_discovered_lock);
     uint8_t count = (s_discovered_count < max_count) ? s_discovered_count : max_count;
     memcpy(devices, s_discovered, count * sizeof(bt_device_entry_t));
+    portEXIT_CRITICAL(&s_discovered_lock);
     return count;
 }
 
 bool hal_ble_audio_connect_device(uint8_t index) {
-    if (!s_profile_ready || index >= s_discovered_count) return false;
+    if (!s_profile_ready) return false;
+    portENTER_CRITICAL(&s_discovered_lock);
+    if (index >= s_discovered_count) {
+        portEXIT_CRITICAL(&s_discovered_lock);
+        return false;
+    }
     memcpy(s_peer_bda, s_discovered[index].bda, sizeof(esp_bd_addr_t));
+    snprintf(s_connected_device_name, sizeof(s_connected_device_name), "%s",
+             s_discovered[index].name);
+    portEXIT_CRITICAL(&s_discovered_lock);
     s_bt_state = BT_STATE_CONNECTING;
-    snprintf(s_connected_device_name, sizeof(s_connected_device_name), "%s", s_discovered[index].name);
     if (s_is_scanning) {
         s_connect_pending = true;
         if (esp_bt_gap_cancel_discovery() != ESP_OK) {

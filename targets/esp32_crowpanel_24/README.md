@@ -4,15 +4,15 @@ This target boots the real Kopuz interface on the Elecrow 2.4-inch CrowPanel,
 scans a FAT32 microSD card, and lets you navigate with the two on-board keys.
 It targets the classic `ESP32-WROOM-32-N4`, not an ESP32-S3.
 
-## What works
+## Implemented features
 
 - 320x240 landscape Kopuz interface on the ILI9341V display
 - PWM backlight control
 - microSD mounting and recursive MP3, FLAC, and WAV library discovery
 - two-button navigation
-- XPT2046 resistive-touch gesture navigation
+- XPT2046 resistive-touch gesture navigation (physical taps not yet verified)
 - non-blocking 115200-baud serial remote control
-- Classic Bluetooth A2DP output to headphones and speakers
+- Classic Bluetooth A2DP output to headphones and speakers (pairing and playback not yet verified on this board)
 - album-art decoding and display
 - bounded album-art memory and hardened MP3/FLAC streaming
 - conservative, reliable flashing and SD settings
@@ -20,7 +20,8 @@ It targets the classic `ESP32-WROOM-32-N4`, not an ESP32-S3.
 The on-board GPIO26 speaker is deliberately muted in this first build. Tracks
 decode and the player UI advances at real time, but proper DAC audio is the next
 hardware step. Touch, serial control, and the two physical keys all feed the
-same application navigation path.
+same application navigation path. The Bluetooth and touch paths still need a
+connected-board test before they should be considered reliable.
 
 ## Bluetooth audio
 

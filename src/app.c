@@ -381,14 +381,16 @@ static void toggle_setting(app_state_t *app) {
             break;
 #if HAS_BLE_AUDIO
         case 5: // Output mode
-            app->output_mode = (app->output_mode == OUTPUT_I2S_DAC) ? OUTPUT_BLE_AUDIO : OUTPUT_I2S_DAC;
-            if (app->output_mode == OUTPUT_BLE_AUDIO &&
-                hal_ble_audio_init(AUDIO_DEFAULT_SAMPLE_RATE, AUDIO_CHANNELS) == 0) {
+            if (app->output_mode == OUTPUT_BLE_AUDIO) {
+                app->output_mode = OUTPUT_I2S_DAC;
+            } else if (hal_ble_audio_init(AUDIO_DEFAULT_SAMPLE_RATE,
+                                         AUDIO_CHANNELS) == 0) {
+                app->output_mode = OUTPUT_BLE_AUDIO;
                 hal_ble_audio_set_volume(app->volume);
                 hal_ble_audio_start_scan();
                 app->screen = SCREEN_BLUETOOTH;
                 app->bt_sel = 0;
-                app->bt_scanning = true;
+                app->bt_scanning = hal_ble_audio_is_scanning();
             }
             break;
         case 6: // Visualizer
@@ -425,7 +427,7 @@ static app_command_t select_item(app_state_t *app) {
                         app->screen = SCREEN_BLUETOOTH;
                         app->bt_device_count = hal_ble_audio_get_discovered(app->bt_devices, 8);
                         app->bt_sel = 0;
-                        app->bt_scanning = true;
+                        app->bt_scanning = hal_ble_audio_is_scanning();
                     } else {
                         app_trigger_bsod(app, "ERR_BLUETOOTH", "Could not initialize A2DP");
                     }
@@ -446,8 +448,8 @@ static app_command_t select_item(app_state_t *app) {
             if (app->bt_sel == 0) {
                 // Do nothing (Status line)
             } else if (app->bt_sel == 1) {
-                app->bt_scanning = true;
                 hal_ble_audio_start_scan();
+                app->bt_scanning = hal_ble_audio_is_scanning();
                 app->bt_device_count = hal_ble_audio_get_discovered(app->bt_devices, 8);
             } else {
                 uint8_t dev_idx = app->bt_sel - 2;

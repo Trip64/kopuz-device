@@ -9,7 +9,7 @@ The simulator is the reference implementation today. Hardware targets are under 
 | Target | Status | Notes |
 | --- | --- | --- |
 | Desktop simulator | Tested | Built and exercised in CI with SDL2, sanitizers, unit tests, and a playback smoke test. |
-| Elecrow CrowPanel 2.4 V2.1 | Hardware-tested demo | Display, SD, buttons, touch, serial control, and conservative flashing validated; A2DP support is build-tested and awaits a connected-board pairing pass. |
+| Elecrow CrowPanel 2.4 V2.1 | Partial hardware test | Display, SD, serial control, and conservative flashing were checked on a board. Touch is calibrated and build-tested but needs a physical tap check; A2DP still needs a pairing/playback test. |
 | LilyGO T-Display S3 | Experimental | ESP-IDF project and drivers are present; requires on-device build and electrical validation. |
 | RP2040 / RP2350 | Experimental | Display/audio foundations are present; MicroSD directory support is not complete. |
 | STM32F746 mikromedia | Integration scaffold | Board-specific drivers are present, but the repository does not yet provide a complete vendor SDK/toolchain package. |
@@ -37,15 +37,16 @@ Requirements:
 - A C99 compiler
 - SDL2 development files
 - Python 3 for generating local smoke-test audio
+- FFmpeg for MP3 and FLAC smoke-test fixtures
 
 Install SDL2:
 
 ```sh
 # macOS
-brew install cmake sdl2
+brew install cmake sdl2 ffmpeg
 
 # Ubuntu / Debian
-sudo apt-get install cmake libsdl2-dev
+sudo apt-get install cmake libsdl2-dev ffmpeg
 ```
 
 Configure and build:

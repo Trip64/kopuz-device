@@ -3,6 +3,7 @@
 #include "hal/hal_audio.h"
 #include "hal/hal_display.h"
 #include "hal/hal_system.h"
+#include "hal/hal_ble_audio.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,6 +18,8 @@
 
 static uint8_t s_last_volume;
 static uint8_t s_last_brightness;
+static bool s_bt_init_fails;
+static bool s_bt_scanning;
 
 bool settings_save(const app_state_t *app) { return app != NULL; }
 bool settings_load(app_state_t *app) { return app != NULL; }
@@ -27,6 +30,21 @@ void hal_display_set_brightness(uint8_t pct) { s_last_brightness = pct; }
 void hal_display_set_theme(uint16_t fg, uint16_t bg) { (void)fg; (void)bg; }
 uint32_t hal_system_random(void) { return 4; }
 void hal_system_reboot(void) {}
+int hal_ble_audio_init(uint32_t sample_rate, uint8_t channels) {
+    (void)sample_rate;
+    (void)channels;
+    return s_bt_init_fails ? -1 : 0;
+}
+void hal_ble_audio_set_volume(uint8_t volume) { (void)volume; }
+void hal_ble_audio_start_scan(void) { s_bt_scanning = true; }
+bool hal_ble_audio_is_scanning(void) { return s_bt_scanning; }
+uint8_t hal_ble_audio_get_discovered(bt_device_entry_t *devices, uint8_t max_count) {
+    (void)devices;
+    (void)max_count;
+    return 0;
+}
+bool hal_ble_audio_connect_device(uint8_t index) { (void)index; return false; }
+void hal_ble_audio_disconnect(void) {}
 
 static track_t make_track(const char *title) {
     track_t track;
@@ -101,6 +119,17 @@ int main(void) {
     app.settings_sel = 3;
     app_on_button(&app, BTN_PLAY_PAUSE);
     CHECK(s_last_brightness == app.brightness);
+
+    app.settings_sel = 5;
+    s_bt_init_fails = true;
+    app_on_button(&app, BTN_PLAY_PAUSE);
+    CHECK(app.output_mode == OUTPUT_I2S_DAC);
+    CHECK(app.screen == SCREEN_SETTINGS);
+    s_bt_init_fails = false;
+    app_on_button(&app, BTN_PLAY_PAUSE);
+    CHECK(app.output_mode == OUTPUT_BLE_AUDIO);
+    CHECK(app.screen == SCREEN_BLUETOOTH);
+    CHECK(app.bt_scanning && s_bt_scanning);
 
     app_set_queue(&app, NULL, 0);
     CHECK(app.queue_len == 0);
