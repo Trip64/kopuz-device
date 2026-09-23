@@ -15,14 +15,15 @@
 
 #define DEBOUNCE_MS 25
 #define LONG_PRESS_MS 600
-#define TOUCH_CLOCK_HZ (2 * 1000 * 1000)
+#define TOUCH_CLOCK_HZ (600 * 1000)
 #define TOUCH_SWIPE_THRESHOLD_PX 32
+#define TOUCH_PRESSURE_THRESHOLD 350
 
-/* Elecrow's calibration for DIS03024H with the display in rotation 1. */
-#define TOUCH_X_RAW_MIN 557
-#define TOUCH_X_RAW_SPAN 3263
-#define TOUCH_Y_RAW_MIN 369
-#define TOUCH_Y_RAW_SPAN 3493
+/* Elecrow's V2.1 ESP-IDF example, calData for TFT_eSPI rotation 1. */
+#define TOUCH_X_RAW_MIN 189
+#define TOUCH_X_RAW_SPAN 3416
+#define TOUCH_Y_RAW_MIN 359
+#define TOUCH_Y_RAW_SPAN 3439
 
 static const char *TAG = "crow_input";
 static spi_device_handle_t s_touch;
@@ -31,6 +32,9 @@ static uint16_t s_touch_start_x;
 static uint16_t s_touch_start_y;
 static uint16_t s_touch_last_x;
 static uint16_t s_touch_last_y;
+static uint8_t s_touch_release_samples;
+static uint16_t s_touch_z1;
+static uint16_t s_touch_z2;
 
 typedef struct {
     gpio_num_t pin;
@@ -54,15 +58,6 @@ void hal_input_init(void) {
     };
     gpio_config(&config);
 
-    gpio_config_t irq_config = {
-        .pin_bit_mask = 1ULL << CROW_TOUCH_IRQ,
-        .mode = GPIO_MODE_INPUT,
-        /* GPIO39 is input-only and has no internal pull resistor. */
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-    };
-    gpio_config(&irq_config);
-
     spi_device_interface_config_t touch_config = {
         .clock_speed_hz = TOUCH_CLOCK_HZ,
         .mode = 0,
@@ -74,8 +69,8 @@ void hal_input_init(void) {
         s_touch = NULL;
         ESP_LOGE(TAG, "XPT2046 initialization failed: %s", esp_err_to_name(error));
     } else {
-        ESP_LOGI(TAG, "XPT2046 touch ready on shared HSPI at %d MHz",
-                 TOUCH_CLOCK_HZ / 1000000);
+        ESP_LOGI(TAG, "XPT2046 touch ready on LCD SPI at %d kHz (pressure polling)",
+                 TOUCH_CLOCK_HZ / 1000);
     }
 
     int64_t now = esp_timer_get_time() / 1000;
@@ -99,15 +94,37 @@ static uint16_t touch_axis(uint8_t command) {
     return (uint16_t)((((uint16_t)rx[1] << 8) | rx[2]) >> 3);
 }
 
+static uint16_t touch_pressure(void) {
+    /* Match TFT_eSPI's getTouchRawZ sequence: Z1, then Z2, with CS held low. */
+    uint8_t tx[5] = {0xB0, 0, 0xC0, 0, 0};
+    uint8_t rx[5] = {0};
+    spi_transaction_t transaction = {
+        .length = 40,
+        .tx_buffer = tx,
+        .rx_buffer = rx,
+    };
+    if (spi_device_polling_transmit(s_touch, &transaction) != ESP_OK) return 0;
+    uint16_t z1 = (uint16_t)((((uint16_t)rx[1] << 8) | rx[2]) >> 3);
+    uint16_t z2 = (uint16_t)((((uint16_t)rx[3] << 8) | rx[4]) >> 3);
+    s_touch_z1 = z1;
+    s_touch_z2 = z2;
+    if ((z1 == 0 && z2 == 0) || (z1 >= 4095 && z2 >= 4095)) return 0;
+    int32_t pressure = 4095 + (int32_t)z1 - (int32_t)z2;
+    return pressure > 0 ? (uint16_t)pressure : 0;
+}
+
 static void touch_position(uint16_t *x, uint16_t *y) {
     uint32_t x_sum = 0;
     uint32_t y_sum = 0;
-    for (unsigned sample = 0; sample < 5; ++sample) {
+    /* The first conversion after switching axes can be stale. */
+    touch_axis(0xD0);
+    touch_axis(0x90);
+    for (unsigned sample = 0; sample < 4; ++sample) {
         x_sum += touch_axis(0xD0);
         y_sum += touch_axis(0x90);
     }
-    *x = (uint16_t)(x_sum / 5);
-    *y = (uint16_t)(y_sum / 5);
+    *x = (uint16_t)(x_sum / 4);
+    *y = (uint16_t)(y_sum / 4);
 }
 
 static uint16_t clamp_map(int32_t value, int32_t raw_min, int32_t raw_span,
@@ -120,34 +137,55 @@ static uint16_t clamp_map(int32_t value, int32_t raw_min, int32_t raw_span,
 
 static void touch_to_screen(uint16_t raw_x, uint16_t raw_y,
                             uint16_t *screen_x, uint16_t *screen_y) {
-    /* Calibration flag 3 means swapped axes with display X inverted. */
-    *screen_x = clamp_map(raw_y, TOUCH_X_RAW_MIN, TOUCH_X_RAW_SPAN, LCD_WIDTH, true);
+    /* Elecrow's calibration flag 1 swaps axes without inversion. */
+    *screen_x = clamp_map(raw_y, TOUCH_X_RAW_MIN, TOUCH_X_RAW_SPAN, LCD_WIDTH, false);
     *screen_y = clamp_map(raw_x, TOUCH_Y_RAW_MIN, TOUCH_Y_RAW_SPAN, LCD_HEIGHT, false);
+}
+
+void hal_input_log_touch_probe(void) {
+    if (!s_touch) {
+        ESP_LOGW(TAG, "Touch probe: SPI device unavailable");
+        return;
+    }
+    uint16_t pressure = touch_pressure();
+    uint16_t raw_x, raw_y, screen_x, screen_y;
+    touch_position(&raw_x, &raw_y);
+    touch_to_screen(raw_x, raw_y, &screen_x, &screen_y);
+    ESP_LOGI(TAG, "Touch probe Z1=%u Z2=%u pressure=%u raw=%u,%u screen=%u,%u",
+             s_touch_z1, s_touch_z2, pressure, raw_x, raw_y, screen_x, screen_y);
 }
 
 bool hal_input_poll_touch(touch_event_t *event) {
     if (!event || !s_touch) return false;
     event->gesture = TOUCH_NONE;
-    bool pressed = gpio_get_level(CROW_TOUCH_IRQ) == 0;
+    bool pressed = touch_pressure() > TOUCH_PRESSURE_THRESHOLD;
     if (pressed) {
         uint16_t raw_x;
         uint16_t raw_y;
         uint16_t x;
         uint16_t y;
         touch_position(&raw_x, &raw_y);
+        if (raw_x < 100 || raw_x > 4000 || raw_y < 100 || raw_y > 4000) {
+            return false;
+        }
         touch_to_screen(raw_x, raw_y, &x, &y);
         if (!s_touch_down) {
             s_touch_down = true;
             s_touch_start_x = x;
             s_touch_start_y = y;
+            ESP_LOGI(TAG, "Touch down raw=%u,%u screen=%u,%u",
+                     raw_x, raw_y, x, y);
         }
+        s_touch_release_samples = 0;
         s_touch_last_x = x;
         s_touch_last_y = y;
         return false;
     }
     if (!s_touch_down) return false;
+    if (++s_touch_release_samples < 2) return false;
 
     s_touch_down = false;
+    s_touch_release_samples = 0;
     int x_delta = (int)s_touch_last_x - (int)s_touch_start_x;
     int y_delta = (int)s_touch_last_y - (int)s_touch_start_y;
     int abs_x = x_delta < 0 ? -x_delta : x_delta;

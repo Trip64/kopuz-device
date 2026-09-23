@@ -21,7 +21,9 @@ static void draw_progress_bar(framebuffer_t *fb, int16_t x, int16_t y, int16_t w
 static void render_list(framebuffer_t *fb, const app_state_t *app);
 static void render_now_playing(framebuffer_t *fb, const app_state_t *app);
 static void render_mini_footer(framebuffer_t *fb, const app_state_t *app);
-static void draw_touch_controls(framebuffer_t *fb, const app_state_t *app);
+#if defined(TARGET_CROWPANEL_DIS03024H)
+static void render_crowpanel(framebuffer_t *fb, const app_state_t *app);
+#endif
 static void draw_dithered_art_1bpp(framebuffer_t *fb, int16_t dst_x, int16_t dst_y, int16_t size,
                                    const uint8_t *src_rgb565, uint8_t src_size);
 
@@ -70,14 +72,17 @@ void ui_render(framebuffer_t *fb, const app_state_t *app) {
 
     fb_clear(fb);
 
+#if defined(TARGET_CROWPANEL_DIS03024H)
+    if (fb->width == 320 && fb->height == 240) {
+        render_crowpanel(fb, app);
+        return;
+    }
+#endif
     if (app->screen == SCREEN_NOW_PLAYING) {
         render_now_playing(fb, app);
     } else {
         render_list(fb, app);
     }
-#if defined(TARGET_CROWPANEL_DIS03024H)
-    draw_touch_controls(fb, app);
-#endif
 }
 
 void ui_render_message(framebuffer_t *fb, const char *heading, const char *body) {
@@ -860,24 +865,259 @@ static void render_mini_footer(framebuffer_t *fb, const app_state_t *app) {
     }
 }
 
-static void draw_touch_controls(framebuffer_t *fb, const app_state_t *app) {
-    if (!fb || !app || fb->width != 320 || fb->height != 240) return;
-
-    static const char *labels[6] = {"BACK", "VOL-", "PREV", "PLAY", "NEXT", "VOL+"};
-    const int16_t y = fb->height - 30;
-    const int16_t cell_w = fb->width / 6;
-
-    fb_fill_rect(fb, 0, y, fb->width, 30, false);
-    fb_draw_line(fb, 0, y, fb->width - 1, y, true);
-    for (int i = 0; i < 6; ++i) {
-        int16_t x = i * cell_w;
-        int16_t width = (i == 5) ? fb->width - x : cell_w;
-        fb_draw_rect(fb, x, y, width, 30, true);
-
-        const char *label = labels[i];
-        if (i == 3 && app->state == PLAYBACK_PLAYING) label = "PAUS";
-        int16_t text_w = (int16_t)strlen(label) * font_6x10.width;
-        fb_draw_text(fb, x + (width - text_w) / 2, y + 10,
-                     label, &font_6x10, false);
+#if defined(TARGET_CROWPANEL_DIS03024H)
+static const char *crowpanel_title(const app_state_t *app) {
+    switch (app->screen) {
+        case SCREEN_MENU: return "KOPUZ";
+        case SCREEN_NOW_PLAYING: return "NOW PLAYING";
+        case SCREEN_SONGS: return "SONGS";
+        case SCREEN_ALBUMS: return "ALBUMS";
+        case SCREEN_ARTISTS: return "ARTISTS";
+        case SCREEN_ALBUM_TRACKS: return "ALBUM TRACKS";
+        case SCREEN_ARTIST_TRACKS: return "ARTIST TRACKS";
+        case SCREEN_SETTINGS: return "SETTINGS";
+        case SCREEN_BLUETOOTH: return "BLUETOOTH";
+        case SCREEN_CONFIRM_REBOOT: return "REBOOT?";
+        default: return "KOPUZ";
     }
 }
+
+static void crowpanel_header(framebuffer_t *fb, const app_state_t *app) {
+    fb_fill_rect(fb, 0, 0, 320, 30, true);
+    if (app->screen != SCREEN_MENU) {
+        fb_draw_text(fb, 12, 8, "<", &font_8x13_bold, true);
+    }
+    fb_draw_text(fb, app->screen == SCREEN_MENU ? 10 : 40, 8,
+                 crowpanel_title(app), &font_8x13_bold, true);
+}
+
+static void crowpanel_button(framebuffer_t *fb, int16_t x, int16_t y,
+                             int16_t w, int16_t h, const char *label, bool active) {
+    fb_fill_rect(fb, x, y, w, h, active);
+    fb_draw_rect(fb, x, y, w, h, true);
+    int16_t text_w = (int16_t)strlen(label) * font_8x13_bold.width;
+    fb_draw_text(fb, x + (w - text_w) / 2, y + (h - 13) / 2,
+                 label, &font_8x13_bold, active);
+}
+
+static void crowpanel_nav(framebuffer_t *fb, const app_state_t *app) {
+    const char *labels[4] = {"BACK", "UP", "SELECT", "DOWN"};
+    if (app->screen == SCREEN_NOW_PLAYING) {
+        labels[1] = "PREV";
+        labels[2] = app->state == PLAYBACK_PLAYING ? "PAUSE" : "PLAY";
+        labels[3] = "NEXT";
+    }
+    fb_draw_line(fb, 0, CROW_UI_NAV_Y - 5, 319, CROW_UI_NAV_Y - 5, true);
+    for (int i = 0; i < 4; ++i) {
+        crowpanel_button(fb, i * CROW_UI_NAV_CELL_W + 4, CROW_UI_NAV_Y,
+                         CROW_UI_NAV_CELL_W - 8, 40, labels[i], i == 2);
+    }
+}
+
+static void crowpanel_menu(framebuffer_t *fb, const app_state_t *app) {
+    uint16_t length = app_get_list_len(app);
+    for (uint16_t index = 0; index < length && index < 6; ++index) {
+        int16_t x = (index % 2) ? 164 : 6;
+        int16_t y = CROW_UI_MENU_Y + (index / 2) * CROW_UI_MENU_STEP_Y;
+        bool selected = index == app->menu_sel;
+        fb_fill_rect(fb, x, y, 150, CROW_UI_MENU_CARD_H, selected);
+        fb_draw_rect(fb, x, y, 150, CROW_UI_MENU_CARD_H, true);
+        char number[8];
+        snprintf(number, sizeof(number), "%02u", (unsigned)index + 1);
+        fb_draw_text(fb, x + 10, y + 8, number, &font_6x10, selected);
+        fb_draw_text_trunc(fb, x + 10, y + 24, MENU_ITEMS[index], 16,
+                           &font_8x13_bold, selected);
+    }
+}
+
+static void crowpanel_row_text(const app_state_t *app, uint16_t index,
+                               char *line, size_t line_size) {
+    switch (app->screen) {
+        case SCREEN_SONGS:
+            if (index < app->queue_len)
+                snprintf(line, line_size, "%s", app->queue[index].title);
+            break;
+        case SCREEN_ALBUMS:
+            if (index < app->albums_len)
+                snprintf(line, line_size, "%s (%u)", app->albums[index].name,
+                         (unsigned)app->albums[index].count);
+            break;
+        case SCREEN_ARTISTS:
+            if (index < app->artists_len)
+                snprintf(line, line_size, "%s (%u)", app->artists[index].name,
+                         (unsigned)app->artists[index].count);
+            break;
+        case SCREEN_ALBUM_TRACKS:
+        case SCREEN_ARTIST_TRACKS: {
+            const track_group_t *group = app->screen == SCREEN_ALBUM_TRACKS
+                ? (app->open_group < app->albums_len ? &app->albums[app->open_group] : NULL)
+                : (app->open_group < app->artists_len ? &app->artists[app->open_group] : NULL);
+            if (group && index < group->count && group->track_indices[index] < app->queue_len)
+                snprintf(line, line_size, "%s", app->queue[group->track_indices[index]].title);
+            break;
+        }
+        case SCREEN_BLUETOOTH:
+#if HAS_BLE_AUDIO
+            if (index == 0)
+                snprintf(line, line_size, "OUTPUT: %s",
+                         hal_ble_audio_is_connected() ? hal_ble_audio_get_device_name() : "DISCONNECTED");
+            else if (index == 1)
+                snprintf(line, line_size, "%s", app->bt_scanning ? "SCANNING..." : "SCAN AGAIN");
+            else if (index - 2 < app->bt_device_count)
+                snprintf(line, line_size, "%s %s",
+                         app->bt_devices[index - 2].connected ? ">" : " ",
+                         app->bt_devices[index - 2].name);
+#endif
+            break;
+        case SCREEN_SETTINGS:
+            if (index == 0) snprintf(line, line_size, "SHUFFLE       %s", app->shuffle ? "ON" : "OFF");
+            else if (index == 1) snprintf(line, line_size, "REPEAT        %s", repeat_str(app->repeat));
+            else if (index == 2) snprintf(line, line_size, "VOLUME        %u%%", (unsigned)app->volume);
+            else if (index == 3) snprintf(line, line_size, "BRIGHTNESS    %u%%", (unsigned)app->brightness);
+            else if (index == 4) snprintf(line, line_size, "THEME         %s", THEMES[app->theme_index % THEMES_COUNT].name);
+#if HAS_BLE_AUDIO
+            else if (index == 5) snprintf(line, line_size, "OUTPUT        %s", app->output_mode == OUTPUT_BLE_AUDIO ? "BT" : "LOCAL");
+            else if (index == 6) snprintf(line, line_size, "VISUALIZER    %s", app->vu_enabled ? "ON" : "OFF");
+            else if (index == 7) snprintf(line, line_size, "CONFIG        %s", app->config_store == CONFIG_STORE_EEPROM ? "EEPROM" : "SD");
+#else
+            else if (index == 5) snprintf(line, line_size, "VISUALIZER    %s", app->vu_enabled ? "ON" : "OFF");
+            else if (index == 6) snprintf(line, line_size, "CONFIG        %s", app->config_store == CONFIG_STORE_EEPROM ? "EEPROM" : "SD");
+#endif
+            break;
+        case SCREEN_CONFIRM_REBOOT:
+            snprintf(line, line_size, "%s", index == 0 ? "RESTART NOW" : "CANCEL");
+            break;
+        default:
+            break;
+    }
+}
+
+static void crowpanel_list(framebuffer_t *fb, const app_state_t *app) {
+    uint16_t length = app_get_list_len(app);
+    uint16_t selected = app_get_current_selection(app);
+    uint16_t max_start = length > CROW_UI_VISIBLE_ROWS ? length - CROW_UI_VISIBLE_ROWS : 0;
+    uint16_t start = selected > CROW_UI_VISIBLE_ROWS / 2
+        ? selected - CROW_UI_VISIBLE_ROWS / 2 : 0;
+    if (start > max_start) start = max_start;
+    if (length == 0) {
+        fb_draw_text(fb, 16, 88, "NOTHING HERE YET", &font_8x13_bold, false);
+        return;
+    }
+    for (uint16_t row = 0; row < CROW_UI_VISIBLE_ROWS; ++row) {
+        uint16_t index = start + row;
+        if (index >= length) break;
+        int16_t y = CROW_UI_LIST_Y + row * CROW_UI_LIST_ROW_H;
+        bool active = index == selected;
+        fb_fill_rect(fb, 6, y, 308, 27, active);
+        fb_draw_rect(fb, 6, y, 308, 27, true);
+        char line[96] = {0};
+        crowpanel_row_text(app, index, line, sizeof(line));
+        fb_draw_text_trunc(fb, 16, y + 7, line, 36, &font_8x13_bold, active);
+    }
+    if (length > CROW_UI_VISIBLE_ROWS) {
+        char page[20];
+        snprintf(page, sizeof(page), "%u / %u", (unsigned)selected + 1, (unsigned)length);
+        fb_draw_text(fb, 256, 181, page, &font_6x10, false);
+    }
+}
+
+static void crowpanel_now_playing(framebuffer_t *fb, const app_state_t *app) {
+    const track_t *track = app_get_current_track(app);
+    fb_draw_rect(fb, UI_ART_X - 2, UI_ART_Y - 2, 84, 84, true);
+    if (!app->art_valid || !app->art_rgb565) {
+        fb_draw_text(fb, 31, 73, "K", &font_8x13_bold, false);
+    }
+    if (!track) {
+        fb_draw_text(fb, 108, 72, "NO TRACK SELECTED", &font_8x13_bold, false);
+    } else {
+        fb_draw_text_trunc(fb, 108, 43, track->title, 25, &font_8x13_bold, false);
+        fb_draw_text_trunc(fb, 108, 65, track->artist, 33, &font_6x10, false);
+        fb_draw_text_trunc(fb, 108, 80, track->album, 33, &font_6x10, false);
+        fb_draw_text_trunc(fb, 108, 101, app->format_badge, 33, &font_6x10, false);
+    }
+    crowpanel_button(fb, 108, 126, 42, 32, "-", false);
+    char volume[24];
+    snprintf(volume, sizeof(volume), "VOL %u%%", (unsigned)app->volume);
+    fb_draw_text(fb, 172, 136, volume, &font_8x13_bold, false);
+    crowpanel_button(fb, 268, 126, 42, 32, "+", false);
+    float frac = track && track->duration_secs
+        ? (float)(app->position_ms / 1000) / (float)track->duration_secs : 0.0f;
+    draw_progress_bar(fb, 10, 171, 300, frac);
+    char position[16], duration[16];
+    format_mmss(app->position_ms / 1000, position, sizeof(position));
+    format_mmss(track ? track->duration_secs : 0, duration, sizeof(duration));
+    fb_draw_text(fb, 10, 180, position, &font_6x10, false);
+    fb_draw_text(fb, 274, 180, duration, &font_6x10, false);
+}
+
+static void render_crowpanel(framebuffer_t *fb, const app_state_t *app) {
+    crowpanel_header(fb, app);
+    if (app->screen == SCREEN_MENU) crowpanel_menu(fb, app);
+    else if (app->screen == SCREEN_NOW_PLAYING) crowpanel_now_playing(fb, app);
+    else crowpanel_list(fb, app);
+    crowpanel_nav(fb, app);
+}
+
+btn_event_t ui_crowpanel_touch(app_state_t *app, const touch_event_t *touch) {
+    if (!app || !touch || app->screen == SCREEN_BSOD) return BTN_NONE;
+    switch (touch->gesture) {
+        case TOUCH_SWIPE_LEFT: return BTN_BACK;
+        case TOUCH_SWIPE_UP: return BTN_NEXT;
+        case TOUCH_SWIPE_DOWN: return BTN_PREV;
+        case TOUCH_SWIPE_RIGHT: return BTN_PLAY_PAUSE;
+        case TOUCH_TAP: break;
+        default: return BTN_NONE;
+    }
+    if (touch->x >= LCD_WIDTH || touch->y >= LCD_HEIGHT) return BTN_NONE;
+
+    if (touch->y >= CROW_UI_NAV_Y) {
+        static const btn_event_t controls[4] = {
+            BTN_BACK, BTN_PREV, BTN_PLAY_PAUSE, BTN_NEXT,
+        };
+        return controls[touch->x / CROW_UI_NAV_CELL_W];
+    }
+    if (touch->y < 30) {
+        return app->screen != SCREEN_MENU && touch->x < 36
+            ? BTN_BACK : BTN_NONE;
+    }
+    if (app->screen == SCREEN_MENU) {
+        if (touch->y < CROW_UI_MENU_Y) return BTN_NONE;
+        unsigned relative_y = touch->y - CROW_UI_MENU_Y;
+        unsigned row = relative_y / CROW_UI_MENU_STEP_Y;
+        if (row >= 3 || relative_y % CROW_UI_MENU_STEP_Y >= CROW_UI_MENU_CARD_H)
+            return BTN_NONE;
+        unsigned column;
+        if (touch->x >= 6 && touch->x < 156) column = 0;
+        else if (touch->x >= 164 && touch->x < 314) column = 1;
+        else return BTN_NONE;
+        uint16_t index = (uint16_t)(row * 2 + column);
+        if (index >= app_get_list_len(app)) return BTN_NONE;
+        app_set_current_selection(app, index);
+        return BTN_PLAY_PAUSE;
+    }
+    if (app->screen == SCREEN_NOW_PLAYING) {
+        if (touch->y >= 126 && touch->y < 159) {
+            if (touch->x >= 108 && touch->x < 150) return BTN_VOL_DOWN;
+            if (touch->x >= 268 && touch->x < 310) return BTN_VOL_UP;
+        }
+        return touch->y >= 35 ? BTN_PLAY_PAUSE : BTN_NONE;
+    }
+
+    uint16_t length = app_get_list_len(app);
+    if (length == 0 || touch->y < CROW_UI_LIST_Y ||
+        touch->y >= CROW_UI_LIST_Y + CROW_UI_VISIBLE_ROWS * CROW_UI_LIST_ROW_H)
+        return BTN_NONE;
+    uint16_t selected = app_get_current_selection(app);
+    uint16_t max_start = length > CROW_UI_VISIBLE_ROWS ? length - CROW_UI_VISIBLE_ROWS : 0;
+    uint16_t start = selected > CROW_UI_VISIBLE_ROWS / 2
+        ? selected - CROW_UI_VISIBLE_ROWS / 2 : 0;
+    if (start > max_start) start = max_start;
+    uint16_t relative_y = touch->y - CROW_UI_LIST_Y;
+    if (relative_y % CROW_UI_LIST_ROW_H >= 27) return BTN_NONE;
+    uint16_t row = relative_y / CROW_UI_LIST_ROW_H;
+    uint16_t index = start + row;
+    if (index >= length) return BTN_NONE;
+    app_set_current_selection(app, index);
+    return BTN_PLAY_PAUSE;
+}
+#endif

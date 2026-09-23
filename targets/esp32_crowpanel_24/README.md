@@ -10,7 +10,7 @@ It targets the classic `ESP32-WROOM-32-N4`, not an ESP32-S3.
 - PWM backlight control
 - microSD mounting and recursive MP3, FLAC, and WAV library discovery
 - two-button navigation
-- XPT2046 resistive-touch gesture navigation (physical taps not yet verified)
+- XPT2046 resistive-touch gesture navigation (updated for V2.1; physical retest needed)
 - non-blocking 115200-baud serial remote control
 - Classic Bluetooth A2DP output to headphones and speakers (pairing and playback not yet verified on this board)
 - album-art decoding and display
@@ -42,7 +42,7 @@ Bluetooth inquiry results are retained and resolved after discovery when possibl
 |---|---|
 | ILI9341V / HSPI | MOSI 13, MISO 12, SCLK 14, CS 15, DC 2 |
 | Backlight | GPIO 27 |
-| XPT2046 touch | CS 33, IRQ 39 (shares LCD SPI) |
+| XPT2046 touch | CS 33 on the LCD SPI bus; polled pressure, no IRQ pin |
 | microSD / VSPI | MOSI 23, MISO 19, SCLK 18, CS 5 |
 | Buttons | GPIO 25 and GPIO 32, active high |
 | Speaker | GPIO 26 |
@@ -107,13 +107,16 @@ each change.
 | Left / GPIO25 | Next item | Previous item |
 | Right / GPIO32 | Select / play-pause | Back |
 
-Touch uses Elecrow's calibrated landscape coordinates. Tap a list row to open
-it, or use the on-screen Back, volume, previous, play/pause, and next buttons.
-Swipe up/down to move and swipe left to go back. Since the panel is resistive,
-a firm touch or fingernail works better than a light capacitive-style touch.
+Touch uses the calibration and 600 kHz SPI speed from Elecrow's V2.1 example.
+The main menu has six large tiles; list screens show five larger rows and a
+four-button navigation bar. The Now Playing screen has separate volume buttons
+and playback controls. Swipe up/down to move and swipe left to go back. Since
+the panel is resistive, a firm touch or fingernail works better than a light
+capacitive-style touch. On serial, send `touch probe` while pressing the panel
+to see pressure and raw coordinates if a tap still does not register.
 
 At 115200 baud, send one serial command per line: `next`, `prev`, `select`,
-`back`, `vol+`, `vol-`, `brightness 10..100`, `status`, or `help`. The short
+`back`, `vol+`, `vol-`, `brightness 10..100`, `touch probe`, `status`, or `help`. The short
 aliases `n`, `p`, and `b` are also accepted. Serial input is non-blocking and
 can remain connected while buttons and touch are used.
 

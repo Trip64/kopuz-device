@@ -12,7 +12,6 @@
 #define CROW_LCD_DC         GPIO_NUM_2
 #define CROW_LCD_BL         GPIO_NUM_27
 #define CROW_TOUCH_CS       GPIO_NUM_33
-#define CROW_TOUCH_IRQ      GPIO_NUM_39
 
 #define CROW_SD_HOST        SPI3_HOST
 #define CROW_SD_MOSI        GPIO_NUM_23

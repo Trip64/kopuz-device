@@ -113,6 +113,28 @@ if(KOPUZ_TARGET STREQUAL "SIMULATOR")
         kopuz_enable_sanitizers(kopuz_app_tests)
         add_test(NAME app_state COMMAND kopuz_app_tests)
 
+        add_executable(kopuz_crowpanel_ui_tests
+            tests/test_crowpanel_ui.c
+            src/ui/mini_player.c
+            src/ui/framebuffer.c
+            src/ui/themes.c
+            src/fonts/font_6x10.c
+            src/fonts/font_8x13_bold.c
+        )
+        target_compile_definitions(kopuz_crowpanel_ui_tests PRIVATE
+            TARGET_CROWPANEL_DIS03024H=1
+            TARGET_ESP32=1
+        )
+        target_include_directories(kopuz_crowpanel_ui_tests PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}
+            include
+            hal
+            src
+        )
+        kopuz_enable_warnings(kopuz_crowpanel_ui_tests)
+        kopuz_enable_sanitizers(kopuz_crowpanel_ui_tests)
+        add_test(NAME crowpanel_ui COMMAND kopuz_crowpanel_ui_tests)
+
         add_executable(kopuz_wav_tests
             tests/test_wav_decoder.c
             src/codecs/decoder.c

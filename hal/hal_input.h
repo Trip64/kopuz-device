@@ -44,6 +44,9 @@ btn_event_t hal_input_poll(void);
 // Poll for a calibrated touch event. Coordinates use the display orientation.
 bool hal_input_poll_touch(touch_event_t *event);
 
+// CrowPanel diagnostic: sample XPT2046 pressure and raw axes on demand.
+void hal_input_log_touch_probe(void);
+
 #ifdef __cplusplus
 }
 #endif

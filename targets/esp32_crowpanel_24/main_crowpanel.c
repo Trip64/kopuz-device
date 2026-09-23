@@ -32,56 +32,6 @@ static app_state_t s_app;
 static char s_serial_line[64];
 static size_t s_serial_length;
 
-#define TOUCH_BAR_Y 210
-#define TOUCH_BODY_Y 16
-#define TOUCH_ROW_HEIGHT 13
-#define TOUCH_VISIBLE_ROWS 14
-
-static btn_event_t handle_touch(const touch_event_t *touch) {
-    if (!touch) return BTN_NONE;
-
-    switch (touch->gesture) {
-        case TOUCH_SWIPE_LEFT: return BTN_BACK;
-        case TOUCH_SWIPE_UP: return BTN_NEXT;
-        case TOUCH_SWIPE_DOWN: return BTN_PREV;
-        case TOUCH_SWIPE_RIGHT: return BTN_PLAY_PAUSE;
-        case TOUCH_TAP: break;
-        default: return BTN_NONE;
-    }
-
-    if (touch->y >= TOUCH_BAR_Y) {
-        unsigned zone = ((unsigned)touch->x * 6U) / LCD_WIDTH;
-        static const btn_event_t controls[6] = {
-            BTN_BACK, BTN_VOL_DOWN, BTN_PREV,
-            BTN_PLAY_PAUSE, BTN_NEXT, BTN_VOL_UP,
-        };
-        if (zone > 5) zone = 5;
-        return controls[zone];
-    }
-
-    if (touch->y < TOUCH_BODY_Y) {
-        return touch->x < LCD_WIDTH / 3 ? BTN_BACK : BTN_NONE;
-    }
-
-    if (s_app.screen == SCREEN_NOW_PLAYING) return BTN_PLAY_PAUSE;
-
-    uint16_t length = app_get_list_len(&s_app);
-    if (length == 0 || touch->y >= TOUCH_BAR_Y) return BTN_NONE;
-
-    uint16_t selected = app_get_current_selection(&s_app);
-    uint16_t max_start = length > TOUCH_VISIBLE_ROWS ? length - TOUCH_VISIBLE_ROWS : 0;
-    uint16_t start = selected > TOUCH_VISIBLE_ROWS / 2
-                         ? selected - TOUCH_VISIBLE_ROWS / 2
-                         : 0;
-    if (start > max_start) start = max_start;
-
-    uint16_t row = (uint16_t)((touch->y - TOUCH_BODY_Y) / TOUCH_ROW_HEIGHT);
-    uint16_t index = start + row;
-    if (row >= TOUCH_VISIBLE_ROWS || index >= length) return BTN_NONE;
-    app_set_current_selection(&s_app, index);
-    return BTN_PLAY_PAUSE;
-}
-
 static btn_event_t execute_serial_command(char *line) {
     while (*line && isspace((unsigned char)*line)) ++line;
     for (char *cursor = line; *cursor; ++cursor) {
@@ -98,6 +48,10 @@ static btn_event_t execute_serial_command(char *line) {
     if (!strcmp(line, "back") || !strcmp(line, "b")) return BTN_BACK;
     if (!strcmp(line, "volume+") || !strcmp(line, "vol+")) return BTN_VOL_UP;
     if (!strcmp(line, "volume-") || !strcmp(line, "vol-")) return BTN_VOL_DOWN;
+    if (!strcmp(line, "touch probe")) {
+        hal_input_log_touch_probe();
+        return BTN_NONE;
+    }
     if (!strncmp(line, "brightness ", 11)) {
         char *end = NULL;
         long value = strtol(line + 11, &end, 10);
@@ -157,7 +111,7 @@ static btn_event_t execute_serial_command(char *line) {
         return BTN_NONE;
     }
     if (!strcmp(line, "help") || !strcmp(line, "?")) {
-        ESP_LOGI(TAG, "Commands: next, prev, select, back, vol+, vol-, brightness 10..100, status");
+        ESP_LOGI(TAG, "Commands: next, prev, select, back, vol+, vol-, brightness 10..100, touch probe, status");
 #if HAS_BLE_AUDIO
         ESP_LOGI(TAG, "Bluetooth: bt scan, bt list, bt connect N, bt disconnect");
 #endif
@@ -248,7 +202,7 @@ void app_main(void) {
         if (button == BTN_NONE) button = hal_input_poll();
         if (button == BTN_NONE) {
             touch_event_t touch;
-            if (hal_input_poll_touch(&touch)) button = handle_touch(&touch);
+            if (hal_input_poll_touch(&touch)) button = ui_crowpanel_touch(&s_app, &touch);
         }
         if (button != BTN_NONE) {
             app_command_t command = app_on_button(&s_app, button);
@@ -294,15 +248,8 @@ void app_main(void) {
         } else if (progress_due) {
             ui_render(&framebuffer, &s_app);
             if (s_app.screen == SCREEN_NOW_PLAYING) {
-                const uint16_t band_height = 26;
-                hal_display_flush_region(framebuffer.buffer, 0,
-                                         LCD_HEIGHT - band_height,
-                                         LCD_WIDTH, band_height);
-            } else {
-                const uint16_t footer_height = 24;
-                hal_display_flush_region(framebuffer.buffer, 0,
-                                         LCD_HEIGHT - footer_height,
-                                         LCD_WIDTH, footer_height);
+                hal_display_flush_region(framebuffer.buffer, 0, 165,
+                                         LCD_WIDTH, CROW_UI_NAV_Y - 165);
             }
         }
 
